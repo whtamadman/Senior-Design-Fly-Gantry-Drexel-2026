@@ -1,0 +1,68 @@
+---------------------------------
+-Robotic System for Fly Tracking-
+-Developer: Chanwoo Chun-
+-Bhandawat Lab-
+Version 2 -- Last Updated: 10/15/20 by SPW
+---------------------------------
+202406181341
+1646.81
+0
+407.454
+0
+1656.34
+477.887
+0
+0
+1
+-0.318306
+1.08631
+0.002215
+0.00205492
+-6.66284
+Select any mode from below:
+	(1) Bottom camera only
+	(2) Toggle between top and bottom cameras
+	(3) Parallel run of top and bottom cameras
+Calibration markers found
+Centers for Calibration step 2: [398, 698;
+ 321, 232;
+ 650, 560]
+fvFrameSize:
+[592 x 600]
+fps:
+480
+fvStruc.img:
+[]
+Writing videofile: C:\Users\mgc57\Documents\Data\202406181341.avi
+Press any key to terminate
+0
+0
+ Used GPU 0 
+net.optimized_memory = 0 
+mini_batch = 1, batch = 32, time_steps = 1, train = 0 
+Using device acA800-510uc
+Create CUDA-stream - 0 
+Acquisition mode set to continuous...
+New Window Handle: 00000000000A0CB8
+ Create cudnn-handle 0 
+nms_kind: greedynms (1), beta = 0.600000 
+nms_kind: greedynms (1), beta = 0.600000 
+16000 529213 176000 176000
+nms_kind: greedynms (1), beta = 0.600000 
+
+ seen 64, trained: 384 K-images (6 Kilo-batches_64) 
+
+ try to allocate additional workspace_size = 39.83 MB 
+ CUDA allocate done! 
+-16000 545213 192000 192000
+18000 480926 126000 126000
+XY Calibrated. Setting up for acquisition
+First Frame:
+592
+600
+New Window Handle: 0000000000080CA8
+started saving
+stopped saving
+optoStim.centerX = 0
+optoStim.centerY = 0
+session complete
