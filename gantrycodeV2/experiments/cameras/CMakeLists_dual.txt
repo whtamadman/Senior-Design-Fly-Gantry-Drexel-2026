@@ -4,15 +4,34 @@ project(CameraDisplays)
 set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Find OpenCV
+# Find OpenCV - Set the path to help CMake find it
+set(OpenCV_DIR "$ENV{OpenCV_DIR}" CACHE PATH "OpenCV directory")
+if(NOT OpenCV_DIR)
+    if(EXISTS "C:/Program Files/opencv/build")
+        set(OpenCV_DIR "C:/Program Files/opencv/build")
+    elseif(EXISTS "C:/opencv/build")
+        set(OpenCV_DIR "C:/opencv/build")
+    elseif(EXISTS "C:/Program Files (x86)/opencv/build")
+        set(OpenCV_DIR "C:/Program Files (x86)/opencv/build")
+    endif()
+endif()
+
+# Add OpenCV to CMAKE_PREFIX_PATH
+if(OpenCV_DIR)
+    message(STATUS "OpenCV directory hint: ${OpenCV_DIR}")
+    list(APPEND CMAKE_PREFIX_PATH "${OpenCV_DIR}")
+endif()
+
 find_package(OpenCV REQUIRED)
 include_directories(${OpenCV_INCLUDE_DIRS})
+message(STATUS "OpenCV version: ${OpenCV_VERSION}")
+message(STATUS "OpenCV libraries: ${OpenCV_LIBS}")
 
 # Find Pylon SDK
 set(PYLON_ROOT "$ENV{PYLON_ROOT}" CACHE PATH "Pylon SDK root directory")
 if(NOT PYLON_ROOT)
-    if(EXISTS "C:/Program Files/Basler/pylon 7")
-        set(PYLON_ROOT "C:/Program Files/Basler/pylon 7")
+    if(EXISTS "C:/Program Files/Basler/pylon")
+        set(PYLON_ROOT "C:/Program Files/Basler/pylon")
     elseif(EXISTS "C:/Program Files/Basler/pylon 6")
         set(PYLON_ROOT "C:/Program Files/Basler/pylon 6")
     elseif(EXISTS "C:/Program Files (x86)/Basler/pylon 7")

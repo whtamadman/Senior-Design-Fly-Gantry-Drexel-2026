@@ -62,9 +62,10 @@ public:
                 camera1Data.imageDamaged = 0;
             }
 
-            if (IsReadable(ptrGrabResult->ChunkTimestamp))
+            // Use TimeStamp instead of ChunkTimestamp (compatible with all Pylon versions)
+            if (ptrGrabResult->GetTimeStamp() != 0)
             {
-                camera1Data.timeStampChunk = ptrGrabResult->ChunkTimestamp.GetValue();
+                camera1Data.timeStampChunk = ptrGrabResult->GetTimeStamp();
             }
 
             camera1Data.frameCount++;
@@ -106,9 +107,10 @@ public:
                 camera2Data.imageDamaged = 0;
             }
 
-            if (IsReadable(ptrGrabResult->ChunkTimestamp))
+            // Use TimeStamp instead of ChunkTimestamp (compatible with all Pylon versions)
+            if (ptrGrabResult->GetTimeStamp() != 0)
             {
-                camera2Data.timeStampChunk = ptrGrabResult->ChunkTimestamp.GetValue();
+                camera2Data.timeStampChunk = ptrGrabResult->GetTimeStamp();
             }
 
             camera2Data.frameCount++;
