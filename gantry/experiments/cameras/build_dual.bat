@@ -45,44 +45,52 @@ echo Configuring with CMake...
 echo Detecting Visual Studio installation...
 echo.
 
-:: Try Visual Studio 18 2026
-echo Attempting: Visual Studio 18 2026...
-cmake .. -G "Visual Studio 18 2026" -A x64
-if %errorlevel% equ 0 (
-    echo [SUCCESS] Using Visual Studio 18 2026
-    echo.
-    goto :build
+:: Allow user to supply OpenCV location via environment variable OPENCV_DIR
+if defined OPENCV_DIR (
+    echo Using OPENCV_DIR from environment: %OPENCV_DIR%
+    set "CMAKE_OPTS=-DOpenCV_DIR=%OPENCV_DIR%"
 ) else (
-    echo [FAILED] Visual Studio 18 2026 configuration failed
-    echo Cleaning build directory and trying other options...
-    cd ..
-    rmdir /s /q build_dual 2>nul
-    mkdir build_dual
-    cd build_dual
+    set "CMAKE_OPTS="
 )
 
-:: Try Visual Studio 17 2022
-echo Attempting: Visual Studio 17 2022...
-cmake .. -G "Visual Studio 17 2022" -A x64
-if %errorlevel% equ 0 (
-    echo [SUCCESS] Using Visual Studio 17 2022
-    goto :build
-)
+:: Try Visual Studio 18 2026
+@REM echo Attempting: Visual Studio 18 2026...
+@REM cmake .. -G "Visual Studio 18 2026" -A x64
+@REM if %errorlevel% equ 0 (
+@REM     echo [SUCCESS] Using Visual Studio 18 2026
+@REM     echo.
+@REM     goto :build
+@REM ) else (
+@REM     echo [FAILED] Visual Studio 18 2026 configuration failed
+@REM     echo Cleaning build directory and trying other options...
+@REM     cd ..
+@REM     rmdir /s /q build_dual 2>nul
+@REM     mkdir build_dual
+@REM     cd build_dual
+@REM )
 
-echo.
+@REM :: Try Visual Studio 17 2022
+@REM echo Attempting: Visual Studio 17 2022...
+@REM cmake .. -G "Visual Studio 17 2022" -A x64
+@REM if %errorlevel% equ 0 (
+@REM     echo [SUCCESS] Using Visual Studio 17 2022
+@REM     goto :build
+@REM )
 
-:: Try Visual Studio 16 2019
-echo Attempting: Visual Studio 16 2019...
-cmake .. -G "Visual Studio 16 2019" -A x64 >nul 2>&1
-if %errorlevel% equ 0 (
-    echo [SUCCESS] Using Visual Studio 16 2019
-    echo.
-    goto :build
-)
+@REM echo.
+
+@REM :: Try Visual Studio 16 2019
+@REM echo Attempting: Visual Studio 16 2019...
+@REM cmake .. -G "Visual Studio 16 2019" -A x64 >nul 2>&1
+@REM if %errorlevel% equ 0 (
+@REM     echo [SUCCESS] Using Visual Studio 16 2019
+@REM     echo.
+@REM     goto :build
+@REM )
 
 :: Try Visual Studio 15 2017  
 echo Attempting: Visual Studio 15 2017...
-cmake .. -G "Visual Studio 15 2017" -A x64 >nul 2>&1
+cmake .. %CMAKE_OPTS% -G "Visual Studio 15 2017" -A x64
 if %errorlevel% equ 0 (
     echo [SUCCESS] Using Visual Studio 15 2017
     echo.
@@ -91,7 +99,7 @@ if %errorlevel% equ 0 (
 
 :: Try NMake Makefiles
 echo Attempting: NMake Makefiles...
-cmake .. -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Release >nul 2>&1
+cmake .. %CMAKE_OPTS% -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Release
 if %errorlevel% equ 0 (
     echo [SUCCESS] Using NMake Makefiles
     echo.
@@ -100,7 +108,7 @@ if %errorlevel% equ 0 (
 
 :: Try MinGW Makefiles
 echo Attempting: MinGW Makefiles...
-cmake .. -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release >nul 2>&1
+cmake .. %CMAKE_OPTS% -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release
 if %errorlevel% equ 0 (
     echo [SUCCESS] Using MinGW Makefiles
     echo.
@@ -109,7 +117,7 @@ if %errorlevel% equ 0 (
 
 :: Try Ninja
 echo Attempting: Ninja...
-cmake .. -G "Ninja" -DCMAKE_BUILD_TYPE=Release >nul 2>&1
+cmake .. %CMAKE_OPTS% -G "Ninja" -DCMAKE_BUILD_TYPE=Release
 if %errorlevel% equ 0 (
     echo [SUCCESS] Using Ninja
     echo.
