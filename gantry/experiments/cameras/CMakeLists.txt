@@ -6,13 +6,27 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # Find OpenCV - Set the path to help CMake find it
 set(OpenCV_DIR "$ENV{OpenCV_DIR}" CACHE PATH "OpenCV directory")
-if(NOT OpenCV_DIR)
-#Change if Needed
-    if(EXISTS "C:/Program Files/opencv/build")
-        set(OpenCV_DIR "C:/Program Files/opencv/build/x64/vc16/lib")
-    elseif(EXISTS "C:/opencv/build")
+if(OpenCV_DIR)
+    # If user provided OpenCV_DIR but it doesn't directly contain OpenCVConfig.cmake,
+    # try common subfolders (e.g. append /lib or /x64/vc15/lib)
+    if(NOT EXISTS "${OpenCV_DIR}/OpenCVConfig.cmake")
+        if(EXISTS "${OpenCV_DIR}/lib/OpenCVConfig.cmake")
+            set(OpenCV_DIR "${OpenCV_DIR}/lib")
+        elseif(EXISTS "${OpenCV_DIR}/x64/vc15/lib/OpenCVConfig.cmake")
+            set(OpenCV_DIR "${OpenCV_DIR}/x64/vc15/lib")
+        elseif(EXISTS "${OpenCV_DIR}/build/x64/vc15/lib/OpenCVConfig.cmake")
+            set(OpenCV_DIR "${OpenCV_DIR}/build/x64/vc15/lib")
+        endif()
+    endif()
+else()
+    # Prefer local build location that contains OpenCVConfig.cmake
+    if(EXISTS "C:/Users/labadmin/opencv/build/x64/vc15/lib/OpenCVConfig.cmake")
+        set(OpenCV_DIR "C:/Users/labadmin/opencv/build/x64/vc15/lib")
+    elseif(EXISTS "C:/Users/labadmin/opencv/build/x64/vc15/OpenCVConfig.cmake")
+        set(OpenCV_DIR "C:/Users/labadmin/opencv/build/x64/vc15")
+    elseif(EXISTS "C:/opencv/build/OpenCVConfig.cmake")
         set(OpenCV_DIR "C:/opencv/build")
-    elseif(EXISTS "C:/Program Files (x86)/opencv/build")
+    elseif(EXISTS "C:/Program Files (x86)/opencv/build/OpenCVConfig.cmake")
         set(OpenCV_DIR "C:/Program Files (x86)/opencv/build")
     endif()
 endif()
@@ -56,6 +70,10 @@ endif()
 
 # Include parent directory for HardwareTriggerConfiguration.h
 include_directories("${CMAKE_SOURCE_DIR}/..")
+# Also include the fly_gantry_v2 folder where HardwareTriggerConfiguration.h resides
+if(EXISTS "${CMAKE_SOURCE_DIR}/../../fly_gantry_v2")
+    include_directories("${CMAKE_SOURCE_DIR}/../../fly_gantry_v2")
+endif()
 
 # Pylon libraries (updated for newer Pylon SDK)
 set(PYLON_LIBS
