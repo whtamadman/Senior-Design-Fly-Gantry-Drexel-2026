@@ -66,6 +66,19 @@ set(PYLON_LIBS
     GCBase_MD_VC142_v3_5_Basler_pylon_v1.lib
 )
 
+# === Detect Basler Cameras ===
+add_executable(detect_basler_cameras detect_basler_cameras.cpp)
+target_link_libraries(detect_basler_cameras ${PYLON_LIBS})
+
+# Copy Pylon DLLs for detect_basler_cameras
+if(EXISTS "${PYLON_ROOT}/Runtime/x64")
+    add_custom_command(TARGET detect_basler_cameras POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${PYLON_ROOT}/Runtime/x64"
+        $<TARGET_FILE_DIR:detect_basler_cameras>
+    )
+endif()
+
 # === Dual Basler Display (Two Basler cameras) ===
 add_executable(dual_basler_display dual_basler_display.cpp)
 target_link_libraries(dual_basler_display ${OpenCV_LIBS} ${PYLON_LIBS})

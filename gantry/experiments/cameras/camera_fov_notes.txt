@@ -1,0 +1,45 @@
+Camera Field of View Specifications
+=====================================
+
+Sensor: 3.84 mm × 2.88 mm
+Focal Length: 94 mm
+
+Field of View Calculations (both cameras):
+-------------------------------------------
+Formula: angle_of_view = 2 * tan^-1(sensor_size / (2 * focal_length)) * (180/π)
+
+Horizontal FOV (x-axis):
+  AOV_x = 2 * tan^-1(3.84 / (2 * 94)) * (180/π)
+  AOV_x = 2 * tan^-1(0.0204) * (180/π)
+  AOV_x ≈ 2.34°
+
+Vertical FOV (y-axis):
+  AOV_y = 2 * tan^-1(2.88 / (2 * 94)) * (180/π)
+  AOV_y = 2 * tan^-1(0.0153) * (180/π)
+  AOV_y ≈ 1.76°
+
+Camera Positioning:
+-------------------
+- Camera directly below the fly: 3 3/8 inches (3.375 inches or 85.725 mm) from the fly
+- Side camera: 2 3/4 inches (2.75 inches or 69.85 mm) from the fly
+
+Side Camera Angle Calculations:
+--------------------------------
+(Assuming side camera is at same vertical level as bottom camera)
+
+Angle from horizontal:
+  θ_horizontal = tan^-1(3.375 / 2.75)
+  θ_horizontal = tan^-1(1.227)
+  θ_horizontal ≈ 50.8°
+
+Angle from vertical:
+  θ_vertical = tan^-1(2.75 / 3.375)
+  θ_vertical = tan^-1(0.815)
+  θ_vertical ≈ 39.2°
+
+Side camera needs to be angled 50.8° up from horizontal (or 39.2° from vertical) to point at the fly.
+
+Notes:
+------
+- Both cameras have identical FOV specifications
+- Need to calculate intersection area/power of the two camera views
