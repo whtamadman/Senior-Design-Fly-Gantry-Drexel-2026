@@ -116,15 +116,15 @@ ReturnCode OpenCV_Cam::Connect(const std::string &id){
 
 
     // Retrieve the camera settings
-    this->width_.Set(       this->camera_.get(CV_CAP_PROP_FRAME_WIDTH));
-    this->height_.Set(      this->camera_.get(CV_CAP_PROP_FRAME_HEIGHT));
-    this->frame_rate_.Set(  this->camera_.get(CV_CAP_PROP_FPS));
-    this->brightness_.Set(  this->camera_.get(CV_CAP_PROP_BRIGHTNESS));
-    this->contrast_.Set(    this->camera_.get(CV_CAP_PROP_CONTRAST));
-    this->saturation_.Set(  this->camera_.get(CV_CAP_PROP_SATURATION ));
-    this->hue_.Set(         this->camera_.get(CV_CAP_PROP_HUE));
-    this->gain_.Set(        this->camera_.get(CV_CAP_PROP_GAIN));
-    this->exposure_.Set(    this->camera_.get(CV_CAP_PROP_EXPOSURE));
+    this->width_.Set(       this->camera_.get(cv::CAP_PROP_FRAME_WIDTH));
+    this->height_.Set(      this->camera_.get(cv::CAP_PROP_FRAME_HEIGHT));
+    this->frame_rate_.Set(  this->camera_.get(cv::CAP_PROP_FPS));
+    this->brightness_.Set(  this->camera_.get(cv::CAP_PROP_BRIGHTNESS));
+    this->contrast_.Set(    this->camera_.get(cv::CAP_PROP_CONTRAST));
+    this->saturation_.Set(  this->camera_.get(cv::CAP_PROP_SATURATION ));
+    this->hue_.Set(         this->camera_.get(cv::CAP_PROP_HUE));
+    this->gain_.Set(        this->camera_.get(cv::CAP_PROP_GAIN));
+    this->exposure_.Set(    this->camera_.get(cv::CAP_PROP_EXPOSURE));
 
     this->debug_.Msg(0, "**** CAMERA INFORMATION ******");
     this->debug_.Msg(0, "Camera Resolution = " + this->width_.GetEntryValue() +"x"+this->height_.GetEntryValue());
@@ -156,7 +156,7 @@ ReturnCode OpenCV_Cam::Setup(const dlp::Parameters &settings){
     if(settings.Contains(this->width_)){
         settings.Get(&this->width_);
         this->debug_.Msg("Setting width...");
-        if(!this->camera_.set(CV_CAP_PROP_FRAME_WIDTH,this->width_.Get())){
+        if(!this->camera_.set(cv::CAP_PROP_FRAME_WIDTH,this->width_.Get())){
             ret.AddWarning(OPENCV_CAM_SET_FRAME_WIDTH_FAILED);
         }
     }
@@ -164,7 +164,7 @@ ReturnCode OpenCV_Cam::Setup(const dlp::Parameters &settings){
     if(settings.Contains(this->height_)){
         settings.Get(&this->height_);
         this->debug_.Msg("Setting height...");
-        if(!this->camera_.set(CV_CAP_PROP_FRAME_HEIGHT,this->height_.Get())){
+        if(!this->camera_.set(cv::CAP_PROP_FRAME_HEIGHT,this->height_.Get())){
             ret.AddWarning(OPENCV_CAM_SET_FRAME_HEIGHT_FAILED);
         }
     }
@@ -172,7 +172,7 @@ ReturnCode OpenCV_Cam::Setup(const dlp::Parameters &settings){
     if(settings.Contains(this->frame_rate_)){
         settings.Get(&this->frame_rate_);
         this->debug_.Msg("Setting frame rate...");
-        if(!this->camera_.set(CV_CAP_PROP_FPS,this->frame_rate_.Get())){
+        if(!this->camera_.set(cv::CAP_PROP_FPS,this->frame_rate_.Get())){
             ret.AddWarning(OPENCV_CAM_SET_FRAME_RATE_FAILED);
         }
     }
@@ -180,7 +180,7 @@ ReturnCode OpenCV_Cam::Setup(const dlp::Parameters &settings){
     if(settings.Contains(this->brightness_)){
         settings.Get(&this->brightness_);
         this->debug_.Msg("Setting brightness...");
-        if(!this->camera_.set(CV_CAP_PROP_BRIGHTNESS,this->brightness_.Get())){
+        if(!this->camera_.set(cv::CAP_PROP_BRIGHTNESS,this->brightness_.Get())){
             ret.AddWarning(OPENCV_CAM_SET_BRIGHTNESS_FAILED);
         }
     }
@@ -188,7 +188,7 @@ ReturnCode OpenCV_Cam::Setup(const dlp::Parameters &settings){
     if(settings.Contains(this->contrast_)){
         settings.Get(&this->contrast_);
         this->debug_.Msg("Setting contrast...");
-        if(!this->camera_.set(CV_CAP_PROP_CONTRAST,this->contrast_.Get())){
+        if(!this->camera_.set(cv::CAP_PROP_CONTRAST,this->contrast_.Get())){
             ret.AddWarning(OPENCV_CAM_SET_CONTRAST_FAILED);
         }
     }
@@ -196,7 +196,7 @@ ReturnCode OpenCV_Cam::Setup(const dlp::Parameters &settings){
     if(settings.Contains(this->saturation_)){
         settings.Get(&this->saturation_);
         this->debug_.Msg("Setting saturation...");
-        if(!this->camera_.set(CV_CAP_PROP_SATURATION,this->saturation_.Get())){
+        if(!this->camera_.set(cv::CAP_PROP_SATURATION,this->saturation_.Get())){
             ret.AddWarning(OPENCV_CAM_SET_SATURATION_FAILED);
         }
     }
@@ -204,7 +204,7 @@ ReturnCode OpenCV_Cam::Setup(const dlp::Parameters &settings){
     if(settings.Contains(this->hue_)){
         settings.Get(&this->hue_);
         this->debug_.Msg("Setting hue...");
-        if(!this->camera_.set(CV_CAP_PROP_HUE,this->hue_.Get())){
+        if(!this->camera_.set(cv::CAP_PROP_HUE,this->hue_.Get())){
             ret.AddWarning(OPENCV_CAM_SET_HUE_FAILED);
         }
     }
@@ -212,7 +212,7 @@ ReturnCode OpenCV_Cam::Setup(const dlp::Parameters &settings){
     if(settings.Contains(this->gain_)){
         settings.Get(&this->gain_);
         this->debug_.Msg("Setting gain...");
-        if(!this->camera_.set(CV_CAP_PROP_GAIN,this->gain_.Get())){
+        if(!this->camera_.set(cv::CAP_PROP_GAIN,this->gain_.Get())){
             ret.AddWarning(OPENCV_CAM_SET_GAIN_FAILED);
         }
     }
@@ -220,7 +220,7 @@ ReturnCode OpenCV_Cam::Setup(const dlp::Parameters &settings){
     if(settings.Contains(this->exposure_)){
         settings.Get(&this->exposure_);
         this->debug_.Msg("Setting exposure...");
-        if(!this->camera_.set(CV_CAP_PROP_EXPOSURE,this->exposure_.Get())){
+        if(!this->camera_.set(cv::CAP_PROP_EXPOSURE,this->exposure_.Get())){
             ret.AddWarning(OPENCV_CAM_SET_EXPOSURE_FAILED);
         }
     }
@@ -230,15 +230,15 @@ ReturnCode OpenCV_Cam::Setup(const dlp::Parameters &settings){
     this->image_buffer_.max_count = this->image_queue_max_frames_.Get();
 
     // Retrieve the camera settings
-    this->width_.Set(       this->camera_.get(CV_CAP_PROP_FRAME_WIDTH));
-    this->height_.Set(      this->camera_.get(CV_CAP_PROP_FRAME_HEIGHT));
-    this->frame_rate_.Set(  this->camera_.get(CV_CAP_PROP_FPS));
-    this->brightness_.Set(  this->camera_.get(CV_CAP_PROP_BRIGHTNESS));
-    this->contrast_.Set(    this->camera_.get(CV_CAP_PROP_CONTRAST));
-    this->saturation_.Set(  this->camera_.get(CV_CAP_PROP_SATURATION ));
-    this->hue_.Set(         this->camera_.get(CV_CAP_PROP_HUE));
-    this->gain_.Set(        this->camera_.get(CV_CAP_PROP_GAIN));
-    this->exposure_.Set(    this->camera_.get(CV_CAP_PROP_EXPOSURE));
+    this->width_.Set(       this->camera_.get(cv::CAP_PROP_FRAME_WIDTH));
+    this->height_.Set(      this->camera_.get(cv::CAP_PROP_FRAME_HEIGHT));
+    this->frame_rate_.Set(  this->camera_.get(cv::CAP_PROP_FPS));
+    this->brightness_.Set(  this->camera_.get(cv::CAP_PROP_BRIGHTNESS));
+    this->contrast_.Set(    this->camera_.get(cv::CAP_PROP_CONTRAST));
+    this->saturation_.Set(  this->camera_.get(cv::CAP_PROP_SATURATION ));
+    this->hue_.Set(         this->camera_.get(cv::CAP_PROP_HUE));
+    this->gain_.Set(        this->camera_.get(cv::CAP_PROP_GAIN));
+    this->exposure_.Set(    this->camera_.get(cv::CAP_PROP_EXPOSURE));
 
     // Clear the image buffer lock flag to allow capture
     this->image_buffer_.lock.clear();

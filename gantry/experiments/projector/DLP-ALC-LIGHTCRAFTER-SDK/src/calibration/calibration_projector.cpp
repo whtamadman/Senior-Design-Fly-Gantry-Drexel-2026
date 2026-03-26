@@ -654,7 +654,7 @@ ReturnCode Calibration::Projector::RemovePrinted_AddProjectedBoard(const Image &
     if (cv::findChessboardCorners(cv_projected,
                                   board_feature_size,
                                   board_feature_locations_xy,
-                                  CV_CALIB_CB_ADAPTIVE_THRESH | CV_CALIB_CB_FILTER_QUADS )){
+                                  cv::CALIB_CB_ADAPTIVE_THRESH | cv::CALIB_CB_FILTER_QUADS )){
 
         this->debug_.Msg("Chessboard corners found");
         this->debug_.Msg("Refining corner locations...");
@@ -665,7 +665,7 @@ ReturnCode Calibration::Projector::RemovePrinted_AddProjectedBoard(const Image &
                          board_feature_locations_xy,
                          cv::Size(11, 11),
                          cv::Size(-1, -1),
-                         cv::TermCriteria(CV_TERMCRIT_EPS | CV_TERMCRIT_ITER, 30, 0.1));
+                         cv::TermCriteria(cv::TermCriteria::EPS | cv::TermCriteria::COUNT, 30, 0.1));
 
         // Return success as true and increment counter
         (*success) = true;
@@ -748,20 +748,20 @@ ReturnCode Calibration::Projector::Calibrate(double    *reprojection_error,
         return ret.AddError(CALIBRATION_NOT_COMPLETE);
 
     // Create calibration flags
-    int cv_calibration_flags = CV_CALIB_USE_INTRINSIC_GUESS;
+    int cv_calibration_flags = cv::CALIB_USE_INTRINSIC_GUESS;
 
     if(this->fix_aspect_ratio_.Get()){
         this->debug_.Msg("Fix aspect ratio");
-        cv_calibration_flags += CV_CALIB_FIX_ASPECT_RATIO;
+        cv_calibration_flags += cv::CALIB_FIX_ASPECT_RATIO;
     }
 
     if(this->zero_tangent_distortion_.Get()){
         this->debug_.Msg("Set tangent distortion to zero");
-        cv_calibration_flags += CV_CALIB_ZERO_TANGENT_DIST;
+        cv_calibration_flags += cv::CALIB_ZERO_TANGENT_DIST;
     }
     if(this->fix_sixth_order_distortion_.Get()){
         this->debug_.Msg("Fix sixth order radial distortion coeffecient");
-        cv_calibration_flags += CV_CALIB_FIX_K3;
+        cv_calibration_flags += cv::CALIB_FIX_K3;
     }
 
 
