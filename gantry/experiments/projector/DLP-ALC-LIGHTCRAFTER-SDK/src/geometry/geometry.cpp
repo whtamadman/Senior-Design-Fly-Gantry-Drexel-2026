@@ -615,7 +615,7 @@ ReturnCode Geometry::AddView(const dlp::Calibration::Data &viewport_calib,
 
     // Calculate the viewports center point
     this->debug_.Msg("Calculating new viewport center location...");
-    cv::gemm(viewport_rotation_3x3, viewport_translation_transposed, -1, empty_3x3, 0, viewport_center, CV_GEMM_A_T);
+    cv::gemm(viewport_rotation_3x3, viewport_translation_transposed, -1, empty_3x3, 0, viewport_center, cv::GEMM_1_T);
     cv::gemm(origin_rotation_3x3, viewport_center, 1, origin_translation_transposed, 1, viewport_center, 0);
 
     viewport_temp.center.x = viewport_center.at<double>(0);
@@ -698,7 +698,7 @@ ReturnCode Geometry::AddView(const dlp::Calibration::Data &viewport_calib,
     this->debug_.Msg("Rotating and transposing new viewport rays into origin coordinate system...");
     cv::Mat R(3, 3, CV_64FC1);
 
-    cv::gemm(origin_rotation_3x3, viewport_rotation_3x3, 1, empty_3x3, 0, R, CV_GEMM_B_T);
+    cv::gemm(origin_rotation_3x3, viewport_rotation_3x3, 1, empty_3x3, 0, R, cv::GEMM_2_T);
     cv::gemm(R, viewport_rays, 1, empty_3x3, 0,viewport_rays, 0);
 
 
@@ -1646,14 +1646,14 @@ ReturnCode Geometry::CalculateFlatness(const dlp::Point::Cloud &cloud, double *f
     // Calculate the covariance
     cv::Mat covariance;
     cv::Mat centroid;
-    cv::calcCovarMatrix(cloud_matrix, covariance, centroid, CV_COVAR_NORMAL | CV_COVAR_ROWS);
+    cv::calcCovarMatrix(cloud_matrix, covariance, centroid, cv::COVAR_NORMAL | cv::COVAR_ROWS);
 
     cv::Mat W;
     cv::Mat V;
     cv::Mat U;
 
 
-    cv::SVD::compute(covariance, W, U, V, CV_SVD_V_T);
+    cv::SVD::compute(covariance, W, U, V, 0);
 
     dlp::Geometry::PlaneEquation plane_eq;
 
@@ -1700,14 +1700,14 @@ dlp::Geometry::PlaneEquation Geometry::FitPlane( const cv::Mat &points){
         // Calculate the covariance
         cv::Mat covariance;
         cv::Mat centroid;
-        cv::calcCovarMatrix(points, covariance, centroid, CV_COVAR_NORMAL | CV_COVAR_ROWS);
+        cv::calcCovarMatrix(points, covariance, centroid, cv::COVAR_NORMAL | cv::COVAR_ROWS);
 
         cv::Mat W;
         cv::Mat V;
         cv::Mat U;
 
 
-        cv::SVD::compute(covariance, W, U, V, CV_SVD_V_T);
+        cv::SVD::compute(covariance, W, U, V, 0);
 
         plane_eq.w.x = V.at<double>(2,0);
         plane_eq.w.y = V.at<double>(2,1);

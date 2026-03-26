@@ -26,7 +26,7 @@ bool Image::Equal(const dlp::Image &a, const dlp::Image &b){
     cv::Mat temp_dst = a.data_.clone();
 
     if(a.format_ != dlp::Image::Format::RGB_UCHAR){
-        cv::compare(a.data_,b.data_,temp_dst,CV_CMP_NE);
+        cv::compare(a.data_,b.data_,temp_dst,cv::CMP_NE);
         if(cv::sum(temp_dst).val[0]>0) return false;
     }
     else{
@@ -41,13 +41,13 @@ bool Image::Equal(const dlp::Image &a, const dlp::Image &b){
         temp_dst = a_split[0].clone();
 
         // Compare
-        cv::compare(a_split[0],b_split[0],temp_dst,CV_CMP_NE);
+        cv::compare(a_split[0],b_split[0],temp_dst,cv::CMP_NE);
         if(cv::sum(temp_dst).val[0]>0) return false;
 
-        cv::compare(a_split[1],b_split[1],temp_dst,CV_CMP_NE);
+        cv::compare(a_split[1],b_split[1],temp_dst,cv::CMP_NE);
         if(cv::sum(temp_dst).val[0]>0) return false;
 
-        cv::compare(a_split[2],b_split[2],temp_dst,CV_CMP_NE);
+        cv::compare(a_split[2],b_split[2],temp_dst,cv::CMP_NE);
         if(cv::sum(temp_dst).val[0]>0) return false;
     }
 
@@ -437,7 +437,7 @@ ReturnCode Image::Load(const std::string &filename){
     this->Clear();
 
     // Load the file
-    this->data_ = cv::imread(filename, CV_LOAD_IMAGE_UNCHANGED);
+    this->data_ = cv::imread(filename, cv::IMREAD_UNCHANGED);
 
     // Check that the image loaded correctly
     if(!this->data_.data){
@@ -630,7 +630,7 @@ ReturnCode Image::Save(const std::string &filename, const unsigned int &comp_or_
             }
 
             // Setup parameter vector
-            image_params.push_back(CV_IMWRITE_JPEG_QUALITY);
+            image_params.push_back(cv::IMWRITE_JPEG_QUALITY);
             image_params.push_back((int)comp_or_qual_val);
 
             // Write the image file
@@ -646,7 +646,7 @@ ReturnCode Image::Save(const std::string &filename, const unsigned int &comp_or_
             }
 
             // Setup parameter vector
-            image_params.push_back(CV_IMWRITE_PNG_COMPRESSION);
+            image_params.push_back(cv::IMWRITE_PNG_COMPRESSION);
             image_params.push_back((int)comp_or_qual_val);
 
             // Write the image file
@@ -1750,8 +1750,8 @@ ReturnCode Image::ConvertToMonochrome(){
 
     // Check if it is RGB
     if(this->format_ == dlp::Image::Format::RGB_UCHAR){
-        // Convert the color imge to grayscale
-        cv::cvtColor(this->data_, temp, CV_RGB2GRAY);
+        // Convert the color image to grayscale
+        cv::cvtColor(this->data_, temp, cv::COLOR_RGB2GRAY);
 
         // Clear the current image data
         this->data_.release();
@@ -1789,8 +1789,8 @@ ReturnCode Image::ConvertToRGB(){
         ret.AddWarning(IMAGE_ALREADY_RGB);
     }
     else{
-        // Convert the color imge to grayscale
-        cv::cvtColor(this->data_, temp, CV_GRAY2RGB);
+        // Convert the color image to RGB
+        cv::cvtColor(this->data_, temp, cv::COLOR_GRAY2RGB);
 
         // Clear the current image data
         this->data_.release();

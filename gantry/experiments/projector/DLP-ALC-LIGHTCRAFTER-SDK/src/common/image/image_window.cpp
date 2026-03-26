@@ -59,7 +59,7 @@ ReturnCode Image::Window::Open(const std::string &name){
     this->id_    = Window::open_windows_.size() - 1;
 
     // Open the window
-    cv::namedWindow(name, CV_WINDOW_NORMAL);
+    cv::namedWindow(name, cv::WINDOW_NORMAL);
     cv::waitKey(1);
 
     return ret;
@@ -95,7 +95,7 @@ ReturnCode Image::Window::Open(const std::string &name, const dlp::Image &image)
     this->id_    = Window::open_windows_.size() - 1;
 
     // Open the window
-    cv::namedWindow(name, CV_WINDOW_NORMAL);
+    cv::namedWindow(name, cv::WINDOW_NORMAL);
     cv::imshow(this->name_,image.data_);
     cv::waitKey(1);
 
@@ -144,7 +144,7 @@ ReturnCode  Image::Window::Open(const std::string &name, const dlp::Image &image
     cv::resize(image.data_,image_resized,new_size);
 
     // Open the window
-    cv::namedWindow(name, CV_WINDOW_NORMAL );
+    cv::namedWindow(name, cv::WINDOW_NORMAL );
     cv::imshow(this->name_,image_resized);
     cv::waitKey(1);
 

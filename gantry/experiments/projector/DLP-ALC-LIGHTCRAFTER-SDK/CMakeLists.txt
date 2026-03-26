@@ -38,14 +38,18 @@ endif(DLP_GENERATE_DOC)
 find_package( OpenCV REQUIRED core highgui features2d calib3d flann imgproc)
 list(APPEND LIBS_EXTERNAL ${OpenCV_LIBS})
 
-find_path(  DLP_OPENCV_INSTALL_INCLUDE              opencv/cv.hpp       "${OpenCV_DIR}/install/include")        
-find_path(  DLP_OPENCV_INSTALL_INCLUDE_OPENCV       cv.hpp              "${OpenCV_DIR}/install/include/opencv")     
-find_path(  DLP_OPENCV_INSTALL_INCLUDE_OPENCV2      opencv.hpp          "${OpenCV_DIR}/install/include/opencv2")        
+# On standard installs, OpenCV headers are in OpenCV_INCLUDE_DIRS
+set(DLP_OPENCV_INSTALL_INCLUDE ${OpenCV_INCLUDE_DIRS})
+set(DLP_OPENCV_INSTALL_INCLUDE_OPENCV ${OpenCV_INCLUDE_DIRS})
+set(DLP_OPENCV_INSTALL_INCLUDE_OPENCV2 ${OpenCV_INCLUDE_DIRS})
 
-#list(APPEND INCLUDE_DIRS ${OpenCV_INCLUDE_DIRS})
+list(APPEND INCLUDE_DIRS ${OpenCV_INCLUDE_DIRS})
 list(APPEND INCLUDE_DIRS ${DLP_OPENCV_INSTALL_INCLUDE})
 list(APPEND INCLUDE_DIRS ${DLP_OPENCV_INSTALL_INCLUDE_OPENCV})
 list(APPEND INCLUDE_DIRS ${DLP_OPENCV_INSTALL_INCLUDE_OPENCV2})
+
+message(STATUS "OpenCV include dirs: ${OpenCV_INCLUDE_DIRS}")
+message(STATUS "DLP SDK include dirs: ${INCLUDE_DIRS}")
 
 # Add GLFW library - OpenGL support and direct video output interface
 option(DLP_BUILD_GLFW "Include the GLFW library required for OpenGL graphics interface and DLP Platform video streaming..." ON)
@@ -217,6 +221,7 @@ list(APPEND SRCS src/common/parameters.cpp)
 list(APPEND SRCS src/common/module.cpp)
 list(APPEND SRCS src/common/debug.cpp)
 list(APPEND SRCS src/structured_light/structured_light.cpp)
+list(APPEND SRCS src/structured_light/grid/grid.cpp)
 list(APPEND SRCS src/structured_light/gray_code/gray_code.cpp)
 list(APPEND SRCS src/structured_light/three_phase/three_phase.cpp)
 list(APPEND SRCS src/geometry/geometry.cpp)
