@@ -30,12 +30,10 @@ Dependencies that were part of the SDK (no separate install):
 - Build, compile, and run executables directly via **x64 Native Tools Command Prompt for VS 2022** terminal (`cd` into SDK directory)
 ----
 ### Test Grid Projection
-In `CMakeLists.txt` in the SDK directory, update the path to `document.cpp` depending on where it is stored locally on your system (lines 335-337)
+In `CMakeLists.txt` in the SDK directory, update the path to `document.cpp` depending on where it is stored locally on your system (line 335)
 ```
 # Test grid executable
 add_executable(test_grid "/path/to/Senior-Design-Fly-Gantry-Drexel-2026/gantry/experiments/projector/document.cpp")
-target_link_libraries(test_grid DLP_SDK)
-target_link_libraries(test_grid ${LIBS})
 ```
 Build SDK using the following command. Update the OpenCV build directory path depending on where you have stored it locally. Additionally, `DDLP_BUILD_PG_FLYCAP2_C_CAMERA_MODULE` is currently set to OFF to avoid extraneous errors/warnings related to the camera.
 ```
