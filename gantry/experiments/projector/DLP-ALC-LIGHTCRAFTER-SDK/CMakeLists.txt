@@ -1,4 +1,4 @@
-﻿cmake_minimum_required(VERSION 2.8)
+﻿cmake_minimum_required(VERSION 3.5)
 project( DLP_SDK CXX C)
 
 set(DLP_SDK_VERSION_MAJOR   "2")
@@ -77,11 +77,11 @@ if(DLP_BUILD_HIDAPI)
         # Add the windows HIDAPI source file
         find_file(HIDAPI_SRC hid.c 3rd_party/hidapi-master/windows) 
         
-        if(NOT MSVC)
-            # Find the setupapi library needed for the HIDAPI library
-            find_library(WIN32_SETUPAPI_LIB setupapi)
-            list(APPEND HIDAPI_LIBS setupapi ${WIN32_SETUPAPI_LIB}) 
-        endif(NOT MSVC)
+        # if(NOT MSVC)
+        # Find the setupapi library needed for the HIDAPI library
+        find_library(WIN32_SETUPAPI_LIB setupapi)
+        list(APPEND HIDAPI_LIBS setupapi ${WIN32_SETUPAPI_LIB}) 
+        # endif(NOT MSVC)
     endif (WIN32)
 
     if (UNIX)
@@ -234,22 +234,23 @@ if(DLP_BUILD_PG_FLYCAP2_C_CAMERA_MODULE)
     list(APPEND SRCS src/camera/pg_flycap2/pg_flycap2_c.cpp)
 endif(DLP_BUILD_PG_FLYCAP2_C_CAMERA_MODULE) 
 list(APPEND SRCS src/dlp_platforms/dlp_platform.cpp)
-list(APPEND SRCS src/dlp_platforms/lightcrafter_3000/lcr3000.cpp)
+# list(APPEND SRCS src/dlp_platforms/lightcrafter_3000/lcr3000.cpp)
 list(APPEND SRCS src/dlp_platforms/lightcrafter_4500/lcr4500.cpp)
 list(APPEND SRCS src/dlp_platforms/lightcrafter_4500/dlpc350_api.cpp)
 list(APPEND SRCS src/dlp_platforms/lightcrafter_4500/dlpc350_usb.cpp)
 list(APPEND SRCS src/dlp_platforms/lightcrafter_4500/dlpc350_firmware.cpp)
 list(APPEND SRCS src/dlp_platforms/lightcrafter_4500/common.cpp)
-list(APPEND SRCS src/dlp_platforms/lightcrafter_6500/lcr6500.cpp)
-list(APPEND SRCS src/dlp_platforms/lightcrafter_6500/dlpc900_api.cpp)
-list(APPEND SRCS src/dlp_platforms/lightcrafter_6500/dlpc900_usb.cpp)
-list(APPEND SRCS src/dlp_platforms/lightcrafter_6500/dlpc900_image.cpp)
+# list(APPEND SRCS src/dlp_platforms/lightcrafter_6500/lcr6500.cpp)
+# list(APPEND SRCS src/dlp_platforms/lightcrafter_6500/dlpc900_api.cpp)
+# list(APPEND SRCS src/dlp_platforms/lightcrafter_6500/dlpc900_usb.cpp)
+# list(APPEND SRCS src/dlp_platforms/lightcrafter_6500/dlpc900_image.cpp)
 list(APPEND SRCS src/common/point_cloud/point_cloud.cpp)
 list(APPEND SRCS src/common/point_cloud/point_cloud_window.cpp)
 
 # Set the include directories 
 list(APPEND INCLUDE_DIRS ${CMAKE_SOURCE_DIR}/include)
-include_directories(${INCLUDE_DIRS} ${PG_FLYCAP_INCLUDE_DIR})
+# include_directories(${INCLUDE_DIRS} ${PG_FLYCAP_INCLUDE_DIR})
+include_directories(${INCLUDE_DIRS})
 
 # Add the definitions
 add_definitions(${DEFINITIONS})
@@ -330,18 +331,23 @@ if(DLP_BUILD_EXAMPLES)
 
 endif(DLP_BUILD_EXAMPLES)
 
+# Test grid executable
+add_executable(test_grid "/path/to/Senior-Design-Fly-Gantry-Drexel-2026/gantry/experiments/projector/document.cpp")
+target_link_libraries(test_grid DLP_SDK)
+target_link_libraries(test_grid ${LIBS})
+
 # Copy the resources directory
 file(COPY resources DESTINATION ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
 
 # Copy the required dll's if on windows
 if (WIN32)
     # Copy OpenCV dll's
-    file(COPY ${OpenCV_DIR}/bin/libopencv_calib3d${OpenCV_VERSION_MAJOR}${OpenCV_VERSION_MINOR}${OpenCV_VERSION_PATCH}.dll      DESTINATION ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
-    file(COPY ${OpenCV_DIR}/bin/libopencv_core${OpenCV_VERSION_MAJOR}${OpenCV_VERSION_MINOR}${OpenCV_VERSION_PATCH}.dll         DESTINATION ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
-    file(COPY ${OpenCV_DIR}/bin/libopencv_features2d${OpenCV_VERSION_MAJOR}${OpenCV_VERSION_MINOR}${OpenCV_VERSION_PATCH}.dll   DESTINATION ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
-    file(COPY ${OpenCV_DIR}/bin/libopencv_flann${OpenCV_VERSION_MAJOR}${OpenCV_VERSION_MINOR}${OpenCV_VERSION_PATCH}.dll        DESTINATION ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
-    file(COPY ${OpenCV_DIR}/bin/libopencv_highgui${OpenCV_VERSION_MAJOR}${OpenCV_VERSION_MINOR}${OpenCV_VERSION_PATCH}.dll      DESTINATION ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
-    file(COPY ${OpenCV_DIR}/bin/libopencv_imgproc${OpenCV_VERSION_MAJOR}${OpenCV_VERSION_MINOR}${OpenCV_VERSION_PATCH}.dll      DESTINATION ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
+    # file(COPY ${OpenCV_DIR}/bin/libopencv_calib3d${OpenCV_VERSION_MAJOR}${OpenCV_VERSION_MINOR}${OpenCV_VERSION_PATCH}.dll      DESTINATION ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
+    # file(COPY ${OpenCV_DIR}/bin/libopencv_core${OpenCV_VERSION_MAJOR}${OpenCV_VERSION_MINOR}${OpenCV_VERSION_PATCH}.dll         DESTINATION ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
+    # file(COPY ${OpenCV_DIR}/bin/libopencv_features2d${OpenCV_VERSION_MAJOR}${OpenCV_VERSION_MINOR}${OpenCV_VERSION_PATCH}.dll   DESTINATION ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
+    # file(COPY ${OpenCV_DIR}/bin/libopencv_flann${OpenCV_VERSION_MAJOR}${OpenCV_VERSION_MINOR}${OpenCV_VERSION_PATCH}.dll        DESTINATION ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
+    # file(COPY ${OpenCV_DIR}/bin/libopencv_highgui${OpenCV_VERSION_MAJOR}${OpenCV_VERSION_MINOR}${OpenCV_VERSION_PATCH}.dll      DESTINATION ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
+    # file(COPY ${OpenCV_DIR}/bin/libopencv_imgproc${OpenCV_VERSION_MAJOR}${OpenCV_VERSION_MINOR}${OpenCV_VERSION_PATCH}.dll      DESTINATION ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
     
     # If Point Grey Module enabled copy the dll's
     if(DLP_BUILD_PG_FLYCAP2_C_CAMERA_MODULE)

@@ -132,3 +132,8 @@ makefile
 
 # vscode
 .vscode/
+
+# others
+*.bmp
+*.bin
+*.png

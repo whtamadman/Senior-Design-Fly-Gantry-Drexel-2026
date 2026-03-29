@@ -55,6 +55,9 @@ ReturnCode Grid::GeneratePatternSequence(Pattern::Sequence *pattern_sequence){
     unsigned int spacing_c = spacing_cols_.Get();
     unsigned int thickness = line_thickness_.Get();
 
+    if (rows == 0 || cols == 0)
+        return ret.AddError(STRUCTURED_LIGHT_PATTERN_SIZE_INVALID);
+
     // Create an image for the grid
     dlp::Image grid_image;
     grid_image.Create(cols, rows, dlp::Image::Format::RGB_UCHAR);
@@ -91,12 +94,19 @@ ReturnCode Grid::GeneratePatternSequence(Pattern::Sequence *pattern_sequence){
 
     // Package into a pattern
     dlp::Pattern grid_pattern;
-    grid_pattern.color       = pattern_color_.Get();
-    grid_pattern.image_data  = grid_image;
-    grid_pattern.data_type   = dlp::Pattern::DataType::IMAGE_DATA;
+    grid_pattern.color      = pattern_color_.Get();
+    grid_pattern.image_data = grid_image;
+    grid_pattern.data_type  = dlp::Pattern::DataType::IMAGE_DATA;
+    grid_pattern.bitdepth   = dlp::Pattern::Bitdepth::RGB_24BPP;
+    grid_pattern.exposure   = 16666;
+    grid_pattern.period     = 16666;
+    grid_pattern.orientation = dlp::Pattern::Orientation::VERTICAL;
 
     pattern_sequence->Clear();
-    pattern_sequence->Add(grid_pattern);
+
+    dlp::ReturnCode add_ret = pattern_sequence->Add(grid_pattern);
+    if (add_ret.hasErrors())
+        return ret.AddError("PATTERN_ADD_FAILED");
 
     return ret;
 }

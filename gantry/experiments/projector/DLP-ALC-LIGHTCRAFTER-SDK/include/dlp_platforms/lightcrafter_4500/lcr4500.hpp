@@ -535,7 +535,7 @@ public:
 
     class Parameters{
     public:
-        DLP_NEW_PARAMETERS_ENTRY(DLPC350_Firmware,          "LCR4500_PARAMETERS_DLPC350_FIRMWARE",          std::string,    "");
+        DLP_NEW_PARAMETERS_ENTRY(DLPC350_Firmware,          "LCR4500_PARAMETERS_DLPC350_FIRMWARE",          std::string,    "resources/lcr4500/DLPR350PROM_v2.0.0.bin");
         DLP_NEW_PARAMETERS_ENTRY(DLPC350_FlashParameters,   "LCR4500_PARAMETERS_DLPC350_FLASH_PARAMETERS",  std::string,    "resources/lcr4500/DLPC350_FlashDeviceParameters.txt");
         DLP_NEW_PARAMETERS_ENTRY(DLPC350_PreparedFirmware,  "LCR4500_PARAMETERS_DLPC350_FIRMWARE_PREPARED", std::string,    "dlp_sdk_lcr4500_dlpc350_prepared.bin");
 
@@ -543,7 +543,7 @@ public:
 
         DLP_NEW_PARAMETERS_ENTRY(FlagUseDefault,            "LCR4500_PARAMETERS_USE_DEFAULT", bool, false);
 
-        DLP_NEW_PARAMETERS_ENTRY(OperatingMode,             "LCR4500_PARAMETERS_OPERATING_MODE",        dlp::LCr4500::OperatingMode::Enum,      dlp::LCr4500::OperatingMode::VIDEO);
+        DLP_NEW_PARAMETERS_ENTRY(OperatingMode,             "LCR4500_PARAMETERS_OPERATING_MODE",        dlp::LCr4500::OperatingMode::Enum,      dlp::LCr4500::OperatingMode::PATTERN_SEQUENCE);
         DLP_NEW_PARAMETERS_ENTRY(InvertData,                "LCR4500_PARAMETERS_INVERT_DATA",           dlp::LCr4500::InvertData::Enum,         dlp::LCr4500::InvertData::NORMAL);
         DLP_NEW_PARAMETERS_ENTRY(PowerStandyMode,           "LCR4500_PARAMETERS_POWER_MODE_STANDBY",    dlp::LCr4500::PowerStandbyMode::Enum,   dlp::LCr4500::PowerStandbyMode::NORMAL);
 
