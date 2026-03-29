@@ -37,7 +37,7 @@ add_executable(test_grid "/path/to/Senior-Design-Fly-Gantry-Drexel-2026/gantry/e
 target_link_libraries(test_grid DLP_SDK)
 target_link_libraries(test_grid ${LIBS})
 ```
-Build SDK using the following command. Update the OpenCV directory depending on where you have stored the build. Additionally, `DDLP_BUILD_PG_FLYCAP2_C_CAMERA_MODULE` set to OFF to avoid extraneous errors/warnings related to the camera.
+Build SDK using the following command. Update the OpenCV build directory path depending on where you have stored it locally. Additionally, `DDLP_BUILD_PG_FLYCAP2_C_CAMERA_MODULE` is currently set to OFF to avoid extraneous errors/warnings related to the camera.
 ```
 cmake -S . -B build -G "Visual Studio 17 2022" -A x64 ^
 -DOpenCV_DIR="\path\to\opencv\build" ^
