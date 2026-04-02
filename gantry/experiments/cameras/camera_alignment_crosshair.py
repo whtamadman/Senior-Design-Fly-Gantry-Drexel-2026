@@ -95,8 +95,19 @@ class CameraAlignmentCrosshair:
         frames = []
         
         for i, camera in enumerate(self.cameras):
+            grab_result = None
             try:
-                grab_result = camera.RetrieveResult(5000, pylon.TimeoutHandling_ThrowException)
+                # Recover if a camera dropped out of grab mode.
+                if not camera.IsGrabbing():
+                    camera.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
+
+                grab_result = camera.RetrieveResult(5000, pylon.TimeoutHandling_Return)
+
+                # Guard against null/invalid result pointers before dereferencing.
+                if grab_result is None or (hasattr(grab_result, "IsValid") and not grab_result.IsValid()):
+                    print(f"Warning: Camera {i} returned an invalid grab result.")
+                    frames.append(None)
+                    continue
                 
                 if grab_result.GrabSucceeded():
                     img = grab_result.Array
@@ -107,13 +118,20 @@ class CameraAlignmentCrosshair:
                     
                     frames.append(img)
                 else:
+                    if hasattr(grab_result, "GetErrorDescription"):
+                        print(f"Warning: Camera {i} grab failed: {grab_result.GetErrorDescription()}")
                     frames.append(None)
-                
-                grab_result.Release()
                 
             except Exception as e:
                 print(f"Error grabbing from camera {i}: {e}")
                 frames.append(None)
+            finally:
+                if grab_result is not None:
+                    try:
+                        grab_result.Release()
+                    except Exception:
+                        # Ignore release failures when pointer is already invalid.
+                        pass
         
         return frames
     

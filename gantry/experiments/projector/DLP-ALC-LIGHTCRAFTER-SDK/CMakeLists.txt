@@ -1,4 +1,4 @@
-﻿cmake_minimum_required(VERSION 3.5)
+cmake_minimum_required(VERSION 3.5)
 project( DLP_SDK CXX C)
 
 set(DLP_SDK_VERSION_MAJOR   "2")
