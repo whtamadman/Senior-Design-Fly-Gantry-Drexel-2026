@@ -1,6 +1,6 @@
 """
-Camera Alignment Tool with Crosshairs
-======================================
+Baslar Camera Calibration
+=========================
 
 Display live camera feeds with center crosshairs for manual alignment.
 Use this to position cameras so they both point at the same target point.
@@ -24,6 +24,8 @@ Controls:
 import numpy as np
 import cv2
 import os
+import tkinter as tk
+from tkinter import ttk, messagebox
 from pypylon import pylon
 from datetime import datetime
 
@@ -50,6 +52,85 @@ class CameraAlignmentCrosshair:
         self.frozen_frames = []
         self.crosshair_size = 40
         self.snapshot_counter = 0
+        self.selected_device_indices = []
+        self.camera_labels = ["Bottom", "Side"] if num_cameras == 2 else [f"Camera {i}" for i in range(num_cameras)]
+
+    def select_camera_ports(self, devices):
+        """
+        Show camera port selection dialog before starting stream.
+        Returns True when user clicks Start.
+        """
+        role_labels = ["Bottom", "Side"] if self.num_cameras == 2 else [f"Camera {i}" for i in range(self.num_cameras)]
+
+        options = []
+        for i, device in enumerate(devices):
+            options.append(f"Port {i}: {device.GetFriendlyName()} (S/N: {device.GetSerialNumber()})")
+
+        if not options:
+            return False
+
+        selected_indices = []
+
+        root = tk.Tk()
+        root.title("Baslar Camera Calibration")
+        root.resizable(False, False)
+
+        container = ttk.Frame(root, padding=14)
+        container.grid(row=0, column=0, sticky="nsew")
+
+        ttk.Label(
+            container,
+            text="Choose camera ports for each view, then click Start.",
+        ).grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 10))
+
+        var_list = []
+        for idx, role in enumerate(role_labels):
+            ttk.Label(container, text=f"{role} Camera:").grid(row=idx + 1, column=0, sticky="w", padx=(0, 8), pady=4)
+            var = tk.StringVar()
+            default_idx = min(idx, len(options) - 1)
+            var.set(options[default_idx])
+            combo = ttk.Combobox(container, textvariable=var, values=options, state="readonly", width=56)
+            combo.grid(row=idx + 1, column=1, sticky="ew", pady=4)
+            var_list.append(var)
+
+        button_row = len(role_labels) + 1
+        button_frame = ttk.Frame(container)
+        button_frame.grid(row=button_row, column=0, columnspan=2, sticky="e", pady=(12, 0))
+
+        cancelled = {"value": False}
+
+        def on_start():
+            indices = []
+            for var in var_list:
+                try:
+                    indices.append(options.index(var.get()))
+                except ValueError:
+                    messagebox.showerror("Invalid selection", "Please choose valid camera ports for each role.")
+                    return
+
+            if len(indices) != len(set(indices)) and len(indices) > 1:
+                messagebox.showerror("Duplicate selection", "Choose different ports for each camera role.")
+                return
+
+            selected_indices.extend(indices)
+            root.destroy()
+
+        def on_cancel():
+            cancelled["value"] = True
+            root.destroy()
+
+        ttk.Button(button_frame, text="Cancel", command=on_cancel).grid(row=0, column=0, padx=(0, 8))
+        ttk.Button(button_frame, text="Start", command=on_start).grid(row=0, column=1)
+
+        root.protocol("WM_DELETE_WINDOW", on_cancel)
+        root.mainloop()
+
+        if cancelled["value"] or not selected_indices:
+            return False
+
+        self.selected_device_indices = selected_indices
+        self.camera_labels = role_labels
+        return True
         
     def connect_cameras(self):
         """
@@ -68,18 +149,26 @@ class CameraAlignmentCrosshair:
                 print(f"WARNING: Found {len(devices)} cameras, but {self.num_cameras} requested.")
                 print(f"Using {len(devices)} camera(s).")
                 self.num_cameras = len(devices)
+                self.camera_labels = [f"Camera {i}" for i in range(self.num_cameras)]
             
             print(f"\nFound {len(devices)} Basler camera(s):")
             for i, device in enumerate(devices):
                 print(f"  Camera {i}: {device.GetFriendlyName()} (S/N: {device.GetSerialNumber()})")
+
+            if not self.select_camera_ports(devices):
+                print("Camera selection canceled.")
+                return False
+
+            selected_indices = self.selected_device_indices or list(range(self.num_cameras))
             
             # Connect cameras
-            for i in range(self.num_cameras):
-                camera = pylon.InstantCamera(tlFactory.CreateDevice(devices[i]))
+            for i, device_idx in enumerate(selected_indices):
+                camera = pylon.InstantCamera(tlFactory.CreateDevice(devices[device_idx]))
                 camera.Open()
                 camera.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
                 self.cameras.append(camera)
-                print(f"  ✓ Camera {i} connected")
+                role_name = self.camera_labels[i] if i < len(self.camera_labels) else f"Camera {i}"
+                print(f"  ✓ {role_name} camera connected on port {device_idx}")
             
             return True
             
@@ -212,7 +301,7 @@ class CameraAlignmentCrosshair:
         cx, cy = w // 2, h // 2
         
         # Camera label
-        label = ["Bottom", "Side"][camera_idx] if self.num_cameras == 2 else f"Camera {camera_idx}"
+        label = self.camera_labels[camera_idx] if camera_idx < len(self.camera_labels) else f"Camera {camera_idx}"
         cv2.putText(img, f"{label} Camera", (10, 30), 
                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
         
@@ -244,7 +333,8 @@ class CameraAlignmentCrosshair:
         
         for i, frame in enumerate(frames):
             if frame is not None:
-                camera_name = ["bottom", "side"][i] if self.num_cameras == 2 else f"cam{i}"
+                label = self.camera_labels[i] if i < len(self.camera_labels) else f"cam{i}"
+                camera_name = label.lower().replace(" ", "_")
                 filename = f"alignment_snapshot_{camera_name}_{timestamp}.png"
                 filepath = os.path.join(save_dir, filename)
                 cv2.imwrite(filepath, frame)
@@ -258,7 +348,7 @@ class CameraAlignmentCrosshair:
         Run the alignment tool.
         """
         print("\n" + "=" * 70)
-        print("CAMERA ALIGNMENT TOOL - CROSSHAIR MODE")
+        print("BASLAR CAMERA CALIBRATION")
         print("=" * 70)
         print(f"\nConfigured for {self.num_cameras} camera(s)")
         print("\nSetup Instructions:")
@@ -287,7 +377,8 @@ class CameraAlignmentCrosshair:
         # Create windows
         window_names = []
         for i in range(self.num_cameras):
-            name = ["Bottom Camera", "Side Camera"][i] if self.num_cameras == 2 else f"Camera {i}"
+            label = self.camera_labels[i] if i < len(self.camera_labels) else f"Camera {i}"
+            name = f"{label} Camera"
             window_names.append(name)
             cv2.namedWindow(name, cv2.WINDOW_NORMAL)
         
