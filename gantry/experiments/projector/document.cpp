@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <queue>
 #include <mutex>
 #include <thread>
@@ -6,7 +7,6 @@
 #include <iostream>
 #include <common/pattern/pattern.hpp>
 #include <dlp_platforms/lightcrafter_4500/lcr4500.hpp>
-#include <structured_light/grid/grid.hpp>
 
 // Queue to hold patterns to be projected, shared between the projection thread and to find where to project thread
 std::queue<dlp::Pattern> patternQueue;
@@ -65,7 +65,7 @@ std::condition_variable patternCV;
 // }
 
 int main() {
-    std::cout << "Starting grid pattern generation test..." << std::endl;
+    std::cout << "Starting one-cell scan sequence projection test..." << std::endl;
 
     // Connect projector
     dlp::LCr4500 projector;
@@ -77,69 +77,112 @@ int main() {
 
     std::cout << "Connected to projector successfully." << std::endl;
 
-    dlp::Grid grid;
-    dlp::Parameters params;
+    const unsigned int patternColumns = 912;
+    const unsigned int patternRows = 1140;
 
-    // Grid params
-    params.Set(dlp::Grid::Parameters::GridSpacingRows(20));
-    params.Set(dlp::Grid::Parameters::GridSpacingColumns(20));
-    params.Set(dlp::Grid::Parameters::LineThickness(1));
+    // The LCr4500 uses a diamond 912x1140 DMD. A raw square can look stretched,
+    // so the row dimension is compensated to keep the projected target close to
+    // a displayed 100x100 square.
+    const unsigned int displayedSquareSize = 100;
+    const unsigned int squareWidth = displayedSquareSize;
+    const unsigned int squareHeight = std::min(displayedSquareSize * 2U, patternRows);
 
-    // Structured light params
-    params.Set(dlp::StructuredLight::Parameters::PatternRows(1140));
-    params.Set(dlp::StructuredLight::Parameters::PatternColumns(912));
-    params.Set(dlp::StructuredLight::Parameters::PatternColor(dlp::Pattern::Color::WHITE));
-    params.Set(dlp::StructuredLight::Parameters::PatternOrientation(
-        dlp::Pattern::Orientation::VERTICAL
-    ));
+    // Increase density so more cells fit inside the 100x100 target.
+    const unsigned int displayedCellSize = 5;
+    const unsigned int gridSpacingColumns = displayedCellSize;
+    const unsigned int gridSpacingRows = displayedCellSize * 2U;
+    const unsigned int gridLineThickness = 1;
 
-    params.Set("STRUCTURED_LIGHT_SETTINGS_SEQUENCE_COUNT", 1);
-    params.Set("STRUCTURED_LIGHT_SETTINGS_SEQUENCE_INCLUDE_INVERTED", false);
-
-    ret = grid.Setup(params);
-    if (ret.hasErrors()) {
-        std::cerr << "Failed to setup grid pattern generator: " << ret.ToString() << std::endl;
-        return 1;
-    }
-    std::cout << "Grid pattern generator setup successfully." << std::endl;
+    const unsigned char blackPixel = 0;
+    const unsigned char whitePixel = 255;
+    const unsigned int startCol = (patternColumns > squareWidth) ? (patternColumns - squareWidth) / 2 : 0;
+    const unsigned int startRow = (patternRows > squareHeight) ? (patternRows - squareHeight) / 2 : 0;
+    const unsigned int endCol = std::min(startCol + squareWidth, patternColumns);
+    const unsigned int endRow = std::min(startRow + squareHeight, patternRows);
+    const unsigned int cellColumns = std::max(1U, squareWidth / gridSpacingColumns);
+    const unsigned int cellRows = std::max(1U, squareHeight / gridSpacingRows);
 
     dlp::Pattern::Sequence sequence;
-    ret = grid.GeneratePatternSequence(&sequence);
-    if (ret.hasErrors()) {
-        std::cerr << "Failed to generate pattern sequence: " << ret.ToString() << std::endl;
-        return 1;
-    }
 
-    // Set valid timing for each pattern
-    for (unsigned int i = 0; i < sequence.GetCount(); i++) {
-        dlp::Pattern p;
-        sequence.Get(i, &p);
+    for (unsigned int cellRow = 0; cellRow < cellRows; ++cellRow) {
+        for (unsigned int cellCol = 0; cellCol < cellColumns; ++cellCol) {
+            dlp::Image image;
+            ret = image.Create(patternColumns, patternRows, dlp::Image::Format::MONO_UCHAR);
+            if (ret.hasErrors()) {
+                std::cerr << "Failed to create image buffer: " << ret.ToString() << std::endl;
+                return 1;
+            }
 
-        // Use correct exposure based on bit depth
-        unsigned long int minExposure = dlp::LCr4500::Pattern::Exposure::MININUM(p.bitdepth);
-        p.exposure = std::max(minExposure, 10000000UL); // 10 ms or min exposure
-        p.period   = p.exposure + 2000; // period slightly longer than exposure
+            for (unsigned int row = 0; row < patternRows; ++row) {
+                for (unsigned int col = 0; col < patternColumns; ++col) {
+                    ret = image.SetPixel(col, row, blackPixel);
+                    if (ret.hasErrors()) {
+                        std::cerr << "Failed to set black pixel value: " << ret.ToString() << std::endl;
+                        return 1;
+                    }
+                }
+            }
 
-        sequence.Set(i, p);
+            const unsigned int cellStartCol = startCol + (cellCol * gridSpacingColumns) + gridLineThickness;
+            const unsigned int cellStartRow = startRow + (cellRow * gridSpacingRows) + gridLineThickness;
+            const unsigned int cellEndCol = std::min(startCol + ((cellCol + 1) * gridSpacingColumns), endCol);
+            const unsigned int cellEndRow = std::min(startRow + ((cellRow + 1) * gridSpacingRows), endRow);
+
+            for (unsigned int row = cellStartRow; row < cellEndRow; ++row) {
+                for (unsigned int col = cellStartCol; col < cellEndCol; ++col) {
+                    ret = image.SetPixel(col, row, whitePixel);
+                    if (ret.hasErrors()) {
+                        std::cerr << "Failed to set white pixel value: " << ret.ToString() << std::endl;
+                        return 1;
+                    }
+                }
+            }
+
+            dlp::Pattern pattern;
+            pattern.id = static_cast<int>(cellRow * cellColumns + cellCol);
+            pattern.bitdepth = dlp::Pattern::Bitdepth::MONO_8BPP;
+            pattern.color = dlp::Pattern::Color::WHITE;
+            pattern.data_type = dlp::Pattern::DataType::IMAGE_DATA;
+            pattern.orientation = dlp::Pattern::Orientation::VERTICAL;
+            pattern.image_data = image;
+
+            unsigned long int minExposure = dlp::LCr4500::Pattern::Exposure::MININUM(pattern.bitdepth);
+            pattern.exposure = std::max(minExposure, 10000000UL);
+            pattern.period = pattern.exposure + 2000;
+
+            ret = sequence.Add(pattern);
+            if (ret.hasErrors()) {
+                std::cerr << "Failed to add cell pattern to sequence: " << ret.ToString() << std::endl;
+                return 1;
+            }
+        }
     }
 
     unsigned int pattern_count = sequence.GetCount();
-    std::cout << "Generated " << pattern_count << " patterns in sequence." << std::endl;
-
     if (pattern_count == 0) {
-        std::cerr << "No patterns generated!" << std::endl;
+        std::cerr << "No cell patterns were generated." << std::endl;
         return 1;
     }
 
-    // Save first pattern to file to verify it looks right
-    dlp::Pattern pattern;
-    ret = sequence.Get(0, &pattern);
-    std::cout << "Get pattern: " << ret.ToString() << std::endl;
+    dlp::Pattern previewPattern;
+    ret = sequence.Get(0, &previewPattern);
+    if (ret.hasErrors()) {
+        std::cerr << "Failed to retrieve preview pattern: " << ret.ToString() << std::endl;
+        return 1;
+    }
 
-    std::cout << "Image empty: " << pattern.image_data.isEmpty() << std::endl;
+    std::cout << "Generated " << pattern_count << " one-cell patterns from a "
+              << cellColumns << "x" << cellRows << " grid." << std::endl;
 
-    ret = pattern.image_data.Save("grid_test.png");
+    std::cout << "Image empty: " << previewPattern.image_data.isEmpty() << std::endl;
+
+    ret = previewPattern.image_data.Save("cell_sequence_preview_0.png");
     std::cout << "Save: " << ret.ToString() << std::endl;
+    std::cout << "Displayed target size: " << displayedSquareSize << "x" << displayedSquareSize << std::endl;
+    std::cout << "Displayed cell size: " << displayedCellSize << "x" << displayedCellSize << std::endl;
+    std::cout << "Raw DMD target size used: " << squareWidth << "x" << squareHeight << std::endl;
+    std::cout << "Square bounds: cols " << startCol << "-" << (endCol - 1)
+              << ", rows " << startRow << "-" << (endRow - 1) << std::endl;
 
     // TODO: Revisit to determine how to set params from main
     // dlp::Parameters projectorParams;
@@ -162,14 +205,13 @@ int main() {
         return 1;
     }
 
-    ret = projector.StartPatternSequence(0, pattern_count, false);  // Start from pattern 0, show all patterns, don't repeat
+    ret = projector.StartPatternSequence(0, pattern_count, true);  // Repeat so the square stays projected until stopped
     if (ret.hasErrors()) {
         std::cerr << "Failed to start pattern sequence projection: " << ret.ToString() << std::endl;
         return 1;
     }
-
-    std::cout << "Grid pattern test completed successfully!" << std::endl;
-    std::cout << "Check grid_test.png for the generated pattern." << std::endl;
+    std::cout << "Running..." << std::endl;    std::cout << "One-cell scan sequence projection started successfully!" << std::endl;
+    std::cout << "Check cell_sequence_preview_0.png for the first generated pattern." << std::endl;
 
     // ===== Safe shutdown =====
     // ret = projector.StopPatternSequence();
