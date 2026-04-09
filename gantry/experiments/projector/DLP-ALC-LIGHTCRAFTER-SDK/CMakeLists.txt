@@ -332,7 +332,7 @@ if(DLP_BUILD_EXAMPLES)
 endif(DLP_BUILD_EXAMPLES)
 
 # Test grid executable
-add_executable(test_grid "/path/to/Senior-Design-Fly-Gantry-Drexel-2026/gantry/experiments/projector/document.cpp")
+add_executable(test_grid "${CMAKE_CURRENT_SOURCE_DIR}/../document.cpp")
 target_link_libraries(test_grid DLP_SDK)
 target_link_libraries(test_grid ${LIBS})
 

@@ -1,228 +1,460 @@
 #include <algorithm>
-#include <queue>
-#include <mutex>
-#include <thread>
-#include <condition_variable>
-#include <functional>
 #include <iostream>
-#include <common/pattern/pattern.hpp>
+#include <string>
+#include <vector>
+
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
+
+#include <opencv2/highgui.hpp>
+#include <opencv2/imgproc.hpp>
+
+#include <common/image/image.hpp>
+#include <common/parameters.hpp>
+#include <common/returncode.hpp>
 #include <dlp_platforms/lightcrafter_4500/lcr4500.hpp>
 
-// Queue to hold patterns to be projected, shared between the projection thread and to find where to project thread
-std::queue<dlp::Pattern> patternQueue;
-// Mutex and condition variable for thread synchronization (Not necessary)
-std::mutex queueMutex;
-std::condition_variable patternCV;
+namespace {
 
-// void patternLoop(dlp::LCr4500& projector) {
-//     while (true) {
-//         std::unique_lock<std::mutex> lock(queueMutex);
-//         patternCV.wait(lock, []{ return !patternQueue.empty(); });
+constexpr unsigned int kPatternColumns = 912;
+constexpr unsigned int kPatternRows = 1140;
+constexpr unsigned int kDisplayedSquareSize = 100;
+constexpr unsigned int kDisplayedCellSize = 5;
 
-//         if (patternQueue.empty()) continue; // Double check after waking up
+// Start with one arbitrary target cell inside the existing grid.
+constexpr unsigned int kInitialTargetCellColumn = 7;
+constexpr unsigned int kInitialTargetCellRow = 12;
 
-//         dlp::Pattern pattern = patternQueue.front();
-//         patternQueue.pop();
-//         lock.unlock();
+// Make the target visible enough to confirm the optical path while still
+// keeping every non-target area black.
+constexpr unsigned int kMinimumSpotWidthPixels = 3;
+constexpr unsigned int kMinimumSpotHeightPixels = 6;
+constexpr unsigned int kLargeSpotWidthPixels = 40;
+constexpr unsigned int kLargeSpotHeightPixels = 80;
 
-//         dlp::Pattern::Sequence sequence;
-//         sequence.Add(pattern);
+// For video-mode targeting, the projector can be left under TI GUI control and
+// this app only needs to render the fullscreen target window. Set to true only
+// if you want this program to also own the USB HID projector configuration.
+constexpr bool kUseUsbProjectorControl = false;
 
-//         dlp::ReturnCode ret;
-//         ret = projector.StopPatternSequence();
-//         if (ret.hasErrors()) {
-//             std::cerr << "Failed to stop pattern sequence: " << ret.ToString() << std::endl;
-//             continue;
-//         }
+enum class ProjectionMode {
+    FullWhite,
+    FullBlack,
+    LargeTarget,
+    SingleTarget
+};
 
-//         ret = projector.PreparePatternSequence(sequence);
-//         if (ret.hasErrors()) {
-//             std::cerr << "Failed to prepare pattern sequence: " << ret.ToString() << std::endl;
-//             continue;
-//         }
+struct GridGeometry {
+    unsigned int startCol;
+    unsigned int startRow;
+    unsigned int squareWidth;
+    unsigned int squareHeight;
+    unsigned int cellSpacingColumns;
+    unsigned int cellSpacingRows;
+    unsigned int cellColumns;
+    unsigned int cellRows;
+};
 
-//         ret = projector.StartPatternSequence(0, 1, false);  // Start from pattern 0, show 1 pattern, don't repeat
-//         if (ret.hasErrors()) {
-//             std::cerr << "Failed to start pattern sequence: " << ret.ToString() << std::endl;
-//             continue;
-//         }
-//     }
-// }
+struct DisplayPlacement {
+    int x = 0;
+    int y = 0;
+    int width = 0;
+    int height = 0;
+    bool usingSecondaryDisplay = false;
+    unsigned int displayCount = 1;
+};
 
-//To be placed in the thread that finds where to beam to
-// {
-//     // FindLocationToBeam logic here
-//     // This Pattern is an array of one pattern created based on the location to beam
-//     // Change to 255 for white pattern, 0 for black pattern
-//     dlp::Pattern newPattern = CreatePatternBasedOnLocation(FindLocationToBeam);
-//     // Add the new pattern to the queue
-//     {
-//         std::lock_guard<std::mutex> lock(queueMutex);
-//         patternQueue.push(newPattern);
-//     }
-//     // Notify the projection thread
-//     patternCV.notify_one();
-// }
+#ifdef _WIN32
+BOOL CALLBACK CollectMonitorRects(HMONITOR, HDC, LPRECT monitorRect, LPARAM userData) {
+    auto* monitorRects = reinterpret_cast<std::vector<RECT>*>(userData);
+    monitorRects->push_back(*monitorRect);
+    return TRUE;
+}
+#endif
+
+DisplayPlacement GetProjectorDisplayPlacement() {
+    DisplayPlacement placement;
+
+#ifdef _WIN32
+    std::vector<RECT> monitorRects;
+    EnumDisplayMonitors(nullptr, nullptr, CollectMonitorRects, reinterpret_cast<LPARAM>(&monitorRects));
+
+    if (!monitorRects.empty()) {
+        placement.displayCount = static_cast<unsigned int>(monitorRects.size());
+
+        RECT selectedRect = monitorRects.front();
+        if (monitorRects.size() > 1U) {
+            for (const RECT& rect : monitorRects) {
+                const bool containsPrimaryOrigin = (rect.left <= 0 && rect.right > 0 && rect.top <= 0 && rect.bottom > 0);
+                if (!containsPrimaryOrigin) {
+                    selectedRect = rect;
+                    placement.usingSecondaryDisplay = true;
+                    break;
+                }
+            }
+
+            if (!placement.usingSecondaryDisplay) {
+                selectedRect = monitorRects[1];
+                placement.usingSecondaryDisplay = true;
+            }
+        }
+
+        placement.x = selectedRect.left;
+        placement.y = selectedRect.top;
+        placement.width = selectedRect.right - selectedRect.left;
+        placement.height = selectedRect.bottom - selectedRect.top;
+    }
+#else
+    placement.width = 1280;
+    placement.height = 720;
+#endif
+
+    return placement;
+}
+
+GridGeometry BuildGridGeometry() {
+    GridGeometry grid;
+    grid.squareWidth = kDisplayedSquareSize;
+    grid.squareHeight = std::min(kDisplayedSquareSize * 2U, kPatternRows);
+    grid.cellSpacingColumns = kDisplayedCellSize;
+    grid.cellSpacingRows = kDisplayedCellSize * 2U;
+    grid.startCol = (kPatternColumns > grid.squareWidth) ? (kPatternColumns - grid.squareWidth) / 2U : 0U;
+    grid.startRow = (kPatternRows > grid.squareHeight) ? (kPatternRows - grid.squareHeight) / 2U : 0U;
+    grid.cellColumns = std::max(1U, grid.squareWidth / grid.cellSpacingColumns);
+    grid.cellRows = std::max(1U, grid.squareHeight / grid.cellSpacingRows);
+    return grid;
+}
+
+dlp::ReturnCode ConfigureProjectorForVideoMode(dlp::LCr4500& projector) {
+    dlp::Parameters videoParams;
+    videoParams.Set(dlp::LCr4500::Parameters::OperatingMode(dlp::LCr4500::OperatingMode::VIDEO));
+    videoParams.Set(dlp::LCr4500::Parameters::VideoInputSource(dlp::LCr4500::Video::InputSource::FPD_LINK));
+    videoParams.Set(dlp::LCr4500::Parameters::VideoParallelPortWidth(dlp::LCr4500::Video::ParallelPortWidth::BITS_30));
+    videoParams.Set(dlp::LCr4500::Parameters::InvertData(dlp::LCr4500::InvertData::NORMAL));
+    videoParams.Set(dlp::LCr4500::Parameters::LED_SequenceAutomatic(true));
+    videoParams.Set(dlp::LCr4500::Parameters::LED_EnableRed(true));
+    videoParams.Set(dlp::LCr4500::Parameters::LED_EnableGreen(true));
+    videoParams.Set(dlp::LCr4500::Parameters::LED_EnableBlue(true));
+    return projector.Setup(videoParams);
+}
+
+const char* ProjectionModeName(const ProjectionMode mode) {
+    switch (mode) {
+    case ProjectionMode::FullWhite:
+        return "full white";
+    case ProjectionMode::FullBlack:
+        return "full black";
+    case ProjectionMode::LargeTarget:
+        return "large bright block";
+    case ProjectionMode::SingleTarget:
+        return "single target";
+    default:
+        return "unknown";
+    }
+}
+
+dlp::ReturnCode BuildProjectionFrame(const GridGeometry& grid,
+                                     const ProjectionMode projectionMode,
+                                     unsigned int targetCellColumn,
+                                     unsigned int targetCellRow,
+                                     bool blankOutput,
+                                     dlp::Image* outputImage,
+                                     unsigned int* targetColumn,
+                                     unsigned int* targetRow) {
+    dlp::ReturnCode ret;
+
+    if (!outputImage || !targetColumn || !targetRow) {
+        return ret.AddError(IMAGE_NULL_POINTER_ARGUMENT_DATA);
+    }
+
+    const unsigned int clampedCellColumn = std::min(targetCellColumn, grid.cellColumns - 1U);
+    const unsigned int clampedCellRow = std::min(targetCellRow, grid.cellRows - 1U);
+
+    *targetColumn = grid.startCol + (clampedCellColumn * grid.cellSpacingColumns) + (grid.cellSpacingColumns / 2U);
+    *targetRow = grid.startRow + (clampedCellRow * grid.cellSpacingRows) + (grid.cellSpacingRows / 2U);
+
+    cv::Mat frame(static_cast<int>(kPatternRows), static_cast<int>(kPatternColumns), CV_8UC3, cv::Scalar(0, 0, 0));
+
+    if (blankOutput) {
+        return outputImage->Create(frame);
+    }
+
+    if (projectionMode == ProjectionMode::FullWhite) {
+        frame.setTo(cv::Scalar(255, 255, 255));
+        return outputImage->Create(frame);
+    }
+
+    if (projectionMode == ProjectionMode::FullBlack) {
+        return outputImage->Create(frame);
+    }
+
+    unsigned int spotWidthPixels = 0;
+    unsigned int spotHeightPixels = 0;
+
+    if (projectionMode == ProjectionMode::LargeTarget) {
+        spotWidthPixels = std::max(kLargeSpotWidthPixels, grid.cellSpacingColumns * 6U);
+        spotHeightPixels = std::max(kLargeSpotHeightPixels, grid.cellSpacingRows * 6U);
+    } else {
+        spotWidthPixels = std::max(kMinimumSpotWidthPixels, grid.cellSpacingColumns > 2U ? grid.cellSpacingColumns - 2U : 1U);
+        spotHeightPixels = std::max(kMinimumSpotHeightPixels, grid.cellSpacingRows > 2U ? grid.cellSpacingRows - 2U : 1U);
+    }
+
+    const int spotStartColumn = std::max(0, static_cast<int>(*targetColumn) - static_cast<int>(spotWidthPixels / 2U));
+    const int spotStartRow = std::max(0, static_cast<int>(*targetRow) - static_cast<int>(spotHeightPixels / 2U));
+    const int spotWidth = std::min(static_cast<int>(spotWidthPixels), static_cast<int>(kPatternColumns) - spotStartColumn);
+    const int spotHeight = std::min(static_cast<int>(spotHeightPixels), static_cast<int>(kPatternRows) - spotStartRow);
+
+    cv::rectangle(
+        frame,
+        cv::Rect(spotStartColumn, spotStartRow, std::max(1, spotWidth), std::max(1, spotHeight)),
+        cv::Scalar(255, 255, 255),
+        cv::FILLED);
+
+    return outputImage->Create(frame);
+}
+
+void PrintControls() {
+    std::cout << "Controls:" << std::endl;
+    std::cout << "  1       : full white test" << std::endl;
+    std::cout << "  2       : full black test" << std::endl;
+    std::cout << "  3       : large bright block (easy visibility check)" << std::endl;
+    std::cout << "  4       : precise single target" << std::endl;
+    std::cout << "  W/A/S/D : move the target cell for modes 3 and 4" << std::endl;
+    std::cout << "  B       : blank/unblank the output" << std::endl;
+    std::cout << "  P       : save the current frame preview" << std::endl;
+    std::cout << "  H       : print controls again" << std::endl;
+    std::cout << "  Q or ESC: quit" << std::endl;
+    std::cout << "Recommended test order: press 1, then 2, then 3, and finally 4." << std::endl;
+}
+
+}  // namespace
 
 int main() {
-    std::cout << "Starting one-cell scan sequence projection test..." << std::endl;
+    std::cout << "Starting video-mode single-target projector test..." << std::endl;
 
-    // Connect projector
     dlp::LCr4500 projector;
-    dlp::ReturnCode ret = projector.Connect("0");
+    bool projectorControlAvailable = false;
+    dlp::ReturnCode ret;
+
+    if (kUseUsbProjectorControl) {
+        ret = projector.Connect("0");
+        if (ret.hasErrors()) {
+            std::cerr << "Warning: USB control connection to the LCr4500 failed: "
+                      << ret.ToString() << std::endl;
+            std::cerr << "Continuing in video-only mode. If the TI LightCrafter GUI is open, it may already be using the USB HID connection." << std::endl;
+            std::cerr << "Leave the GUI configured for Video Mode + LVDS/FPDLink while this program runs, or close the GUI and rerun if you want the code to own USB control." << std::endl;
+        } else {
+            projectorControlAvailable = true;
+            std::cout << "Connected to projector successfully over USB control." << std::endl;
+
+            ret = projector.StopPatternSequence();
+            if (ret.hasErrors()) {
+                std::cout << "Pattern stop returned: " << ret.ToString()
+                          << " (continuing while switching into video mode)." << std::endl;
+            }
+
+            ret = ConfigureProjectorForVideoMode(projector);
+            if (ret.hasErrors()) {
+                std::cerr << "Warning: Failed to switch projector into video mode over USB: "
+                          << ret.ToString() << std::endl;
+                std::cerr << "Continuing anyway; make sure the TI GUI is already set to Video Mode + LVDS/FPDLink." << std::endl;
+            }
+        }
+    } else {
+        std::cout << "USB control is intentionally disabled for this video-mode test." << std::endl;
+        std::cout << "Use the TI LightCrafter GUI to keep the projector in Video Mode + LVDS/FPDLink, then let this app only render the target window." << std::endl;
+    }
+
+    const GridGeometry grid = BuildGridGeometry();
+    unsigned int targetCellColumn = std::min(kInitialTargetCellColumn, grid.cellColumns - 1U);
+    unsigned int targetCellRow = std::min(kInitialTargetCellRow, grid.cellRows - 1U);
+    bool blankOutput = false;
+    ProjectionMode projectionMode = ProjectionMode::LargeTarget;
+
+    dlp::Image targetFrame;
+    unsigned int targetColumn = 0;
+    unsigned int targetRowValue = 0;
+
+    ret = BuildProjectionFrame(grid, projectionMode, targetCellColumn, targetCellRow, blankOutput, &targetFrame, &targetColumn, &targetRowValue);
     if (ret.hasErrors()) {
-        std::cerr << "Failed to connect to projector: " << ret.ToString() << std::endl;
+        std::cerr << "Failed to build target frame: " << ret.ToString() << std::endl;
+        if (projectorControlAvailable) {
+            projector.Disconnect();
+        }
         return 1;
     }
 
-    std::cout << "Connected to projector successfully." << std::endl;
+    ret = targetFrame.Save("video_mode_target_preview.png");
+    std::cout << "Preview save: " << ret.ToString() << std::endl;
+    std::cout << "Grid size: " << grid.cellColumns << "x" << grid.cellRows << std::endl;
+    std::cout << "Initial target cell: (col=" << targetCellColumn << ", row=" << targetCellRow << ")" << std::endl;
+    std::cout << "Approximate DMD target pixel: (x=" << targetColumn << ", y=" << targetRowValue << ")" << std::endl;
+    std::cout << "Startup mode: " << ProjectionModeName(projectionMode) << std::endl;
+    std::cout << "Use the numbered keys to switch between easy verification views." << std::endl;
 
-    const unsigned int patternColumns = 912;
-    const unsigned int patternRows = 1140;
+    cv::Mat frameToDisplay;
+    ret = targetFrame.GetOpenCVData(&frameToDisplay);
+    if (ret.hasErrors()) {
+        std::cerr << "Failed to extract OpenCV frame: " << ret.ToString() << std::endl;
+        if (projectorControlAvailable) {
+            projector.Disconnect();
+        }
+        return 1;
+    }
 
-    // The LCr4500 uses a diamond 912x1140 DMD. A raw square can look stretched,
-    // so the row dimension is compensated to keep the projected target close to
-    // a displayed 100x100 square.
-    const unsigned int displayedSquareSize = 100;
-    const unsigned int squareWidth = displayedSquareSize;
-    const unsigned int squareHeight = std::min(displayedSquareSize * 2U, patternRows);
+    const std::string windowName = "LCr4500 Video Target";
+    const DisplayPlacement displayPlacement = GetProjectorDisplayPlacement();
 
-    // Increase density so more cells fit inside the 100x100 target.
-    const unsigned int displayedCellSize = 5;
-    const unsigned int gridSpacingColumns = displayedCellSize;
-    const unsigned int gridSpacingRows = displayedCellSize * 2U;
-    const unsigned int gridLineThickness = 1;
+    cv::namedWindow(windowName, cv::WINDOW_NORMAL);
+    if (displayPlacement.width > 0 && displayPlacement.height > 0) {
+        cv::resizeWindow(windowName, displayPlacement.width, displayPlacement.height);
+    }
+    cv::moveWindow(windowName, displayPlacement.x, displayPlacement.y);
+    cv::imshow(windowName, frameToDisplay);
+    cv::setWindowProperty(windowName, cv::WND_PROP_FULLSCREEN, cv::WINDOW_FULLSCREEN);
+    cv::waitKey(1);
 
-    const unsigned char blackPixel = 0;
-    const unsigned char whitePixel = 255;
-    const unsigned int startCol = (patternColumns > squareWidth) ? (patternColumns - squareWidth) / 2 : 0;
-    const unsigned int startRow = (patternRows > squareHeight) ? (patternRows - squareHeight) / 2 : 0;
-    const unsigned int endCol = std::min(startCol + squareWidth, patternColumns);
-    const unsigned int endRow = std::min(startRow + squareHeight, patternRows);
-    const unsigned int cellColumns = std::max(1U, squareWidth / gridSpacingColumns);
-    const unsigned int cellRows = std::max(1U, squareHeight / gridSpacingRows);
+    std::cout << "Video target window is ready." << std::endl;
+    std::cout << "Detected " << displayPlacement.displayCount << " display(s)." << std::endl;
+    if (displayPlacement.usingSecondaryDisplay) {
+        std::cout << "The fullscreen target window was moved to the secondary display at origin ("
+                  << displayPlacement.x << ", " << displayPlacement.y << ")." << std::endl;
+    } else {
+        std::cout << "Only one display was detected, so the window stayed on the primary screen." << std::endl;
+        std::cout << "If the projector is connected as an extended display, drag or move this fullscreen window onto it." << std::endl;
+    }
+    if (!projectorControlAvailable) {
+        std::cout << "Running without USB control. This is fine for video-mode display as long as the TI GUI remains set correctly." << std::endl;
+    }
+    PrintControls();
 
-    dlp::Pattern::Sequence sequence;
+    bool running = true;
+    while (running) {
+        const int key = cv::waitKey(0);
+        bool refreshFrame = false;
 
-    for (unsigned int cellRow = 0; cellRow < cellRows; ++cellRow) {
-        for (unsigned int cellCol = 0; cellCol < cellColumns; ++cellCol) {
-            dlp::Image image;
-            ret = image.Create(patternColumns, patternRows, dlp::Image::Format::MONO_UCHAR);
+        switch (key) {
+        case '1':
+            projectionMode = ProjectionMode::FullWhite;
+            blankOutput = false;
+            refreshFrame = true;
+            break;
+        case '2':
+            projectionMode = ProjectionMode::FullBlack;
+            blankOutput = false;
+            refreshFrame = true;
+            break;
+        case '3':
+            projectionMode = ProjectionMode::LargeTarget;
+            blankOutput = false;
+            refreshFrame = true;
+            break;
+        case '4':
+            projectionMode = ProjectionMode::SingleTarget;
+            blankOutput = false;
+            refreshFrame = true;
+            break;
+        case 'a':
+        case 'A':
+            if (targetCellColumn > 0U) {
+                --targetCellColumn;
+                refreshFrame = true;
+            }
+            break;
+        case 'd':
+        case 'D':
+            if ((targetCellColumn + 1U) < grid.cellColumns) {
+                ++targetCellColumn;
+                refreshFrame = true;
+            }
+            break;
+        case 'w':
+        case 'W':
+            if (targetCellRow > 0U) {
+                --targetCellRow;
+                refreshFrame = true;
+            }
+            break;
+        case 's':
+        case 'S':
+            if ((targetCellRow + 1U) < grid.cellRows) {
+                ++targetCellRow;
+                refreshFrame = true;
+            }
+            break;
+        case 'b':
+        case 'B':
+            blankOutput = !blankOutput;
+            refreshFrame = true;
+            break;
+        case 'h':
+        case 'H':
+            PrintControls();
+            break;
+        case 'p':
+        case 'P':
+            ret = targetFrame.Save("video_mode_target_preview.png");
+            std::cout << "Saved current preview: " << ret.ToString() << std::endl;
+            break;
+        case 'q':
+        case 'Q':
+        case 27:
+            running = false;
+            break;
+        default:
+            break;
+        }
+
+        if (!running) {
+            break;
+        }
+
+        if (refreshFrame) {
+            ret = BuildProjectionFrame(grid, projectionMode, targetCellColumn, targetCellRow, blankOutput, &targetFrame, &targetColumn, &targetRowValue);
             if (ret.hasErrors()) {
-                std::cerr << "Failed to create image buffer: " << ret.ToString() << std::endl;
-                return 1;
+                std::cerr << "Failed to refresh target frame: " << ret.ToString() << std::endl;
+                break;
             }
 
-            for (unsigned int row = 0; row < patternRows; ++row) {
-                for (unsigned int col = 0; col < patternColumns; ++col) {
-                    ret = image.SetPixel(col, row, blackPixel);
-                    if (ret.hasErrors()) {
-                        std::cerr << "Failed to set black pixel value: " << ret.ToString() << std::endl;
-                        return 1;
-                    }
-                }
-            }
-
-            const unsigned int cellStartCol = startCol + (cellCol * gridSpacingColumns) + gridLineThickness;
-            const unsigned int cellStartRow = startRow + (cellRow * gridSpacingRows) + gridLineThickness;
-            const unsigned int cellEndCol = std::min(startCol + ((cellCol + 1) * gridSpacingColumns), endCol);
-            const unsigned int cellEndRow = std::min(startRow + ((cellRow + 1) * gridSpacingRows), endRow);
-
-            for (unsigned int row = cellStartRow; row < cellEndRow; ++row) {
-                for (unsigned int col = cellStartCol; col < cellEndCol; ++col) {
-                    ret = image.SetPixel(col, row, whitePixel);
-                    if (ret.hasErrors()) {
-                        std::cerr << "Failed to set white pixel value: " << ret.ToString() << std::endl;
-                        return 1;
-                    }
-                }
-            }
-
-            dlp::Pattern pattern;
-            pattern.id = static_cast<int>(cellRow * cellColumns + cellCol);
-            pattern.bitdepth = dlp::Pattern::Bitdepth::MONO_8BPP;
-            pattern.color = dlp::Pattern::Color::WHITE;
-            pattern.data_type = dlp::Pattern::DataType::IMAGE_DATA;
-            pattern.orientation = dlp::Pattern::Orientation::VERTICAL;
-            pattern.image_data = image;
-
-            unsigned long int minExposure = dlp::LCr4500::Pattern::Exposure::MININUM(pattern.bitdepth);
-            pattern.exposure = std::max(minExposure, 10000000UL);
-            pattern.period = pattern.exposure + 2000;
-
-            ret = sequence.Add(pattern);
+            ret = targetFrame.GetOpenCVData(&frameToDisplay);
             if (ret.hasErrors()) {
-                std::cerr << "Failed to add cell pattern to sequence: " << ret.ToString() << std::endl;
-                return 1;
+                std::cerr << "Failed to update OpenCV frame: " << ret.ToString() << std::endl;
+                break;
+            }
+
+            cv::imshow(windowName, frameToDisplay);
+            cv::waitKey(1);
+
+            if (blankOutput) {
+                std::cout << "Output blanked." << std::endl;
+            } else {
+                std::cout << "Mode: " << ProjectionModeName(projectionMode);
+                if (projectionMode == ProjectionMode::LargeTarget || projectionMode == ProjectionMode::SingleTarget) {
+                    std::cout << " | target cell (col=" << targetCellColumn << ", row=" << targetCellRow
+                              << ") | approx DMD pixel (x=" << targetColumn << ", y=" << targetRowValue << ")";
+                }
+                std::cout << std::endl;
             }
         }
     }
 
-    unsigned int pattern_count = sequence.GetCount();
-    if (pattern_count == 0) {
-        std::cerr << "No cell patterns were generated." << std::endl;
-        return 1;
+    cv::destroyWindow(windowName);
+
+    if (projectorControlAvailable) {
+        ret = projector.Disconnect();
+        if (ret.hasErrors()) {
+            std::cerr << "Warning: Failed to disconnect projector cleanly: " << ret.ToString() << std::endl;
+            return 1;
+        }
+
+        std::cout << "Projector disconnected. Exiting." << std::endl;
+    } else {
+        std::cout << "Exiting video-only mode." << std::endl;
     }
-
-    dlp::Pattern previewPattern;
-    ret = sequence.Get(0, &previewPattern);
-    if (ret.hasErrors()) {
-        std::cerr << "Failed to retrieve preview pattern: " << ret.ToString() << std::endl;
-        return 1;
-    }
-
-    std::cout << "Generated " << pattern_count << " one-cell patterns from a "
-              << cellColumns << "x" << cellRows << " grid." << std::endl;
-
-    std::cout << "Image empty: " << previewPattern.image_data.isEmpty() << std::endl;
-
-    ret = previewPattern.image_data.Save("cell_sequence_preview_0.png");
-    std::cout << "Save: " << ret.ToString() << std::endl;
-    std::cout << "Displayed target size: " << displayedSquareSize << "x" << displayedSquareSize << std::endl;
-    std::cout << "Displayed cell size: " << displayedCellSize << "x" << displayedCellSize << std::endl;
-    std::cout << "Raw DMD target size used: " << squareWidth << "x" << squareHeight << std::endl;
-    std::cout << "Square bounds: cols " << startCol << "-" << (endCol - 1)
-              << ", rows " << startRow << "-" << (endRow - 1) << std::endl;
-
-    // TODO: Revisit to determine how to set params from main
-    // dlp::Parameters projectorParams;
-    // projectorParams.Set(
-    //     dlp::LCr4500::Parameters::DLPC350_Firmware(
-    //         "resources/lcr4500/DLPR350PROM_v2.0.0.bin"
-    //     )
-    // );
-
-    // projectorParams.Set(
-    //     dlp::LCr4500::Parameters::DLPC350_FlashParameters(
-    //         "resources/lcr4500/DLPC350_FlashDeviceParameters.txt"
-    //     )
-    // );
-
-    // Project it
-    ret = projector.PreparePatternSequence(sequence);
-    if (ret.hasErrors()) {
-        std::cerr << "Failed to prepare pattern sequence for projection: " << ret.ToString() << std::endl;
-        return 1;
-    }
-
-    ret = projector.StartPatternSequence(0, pattern_count, true);  // Repeat so the square stays projected until stopped
-    if (ret.hasErrors()) {
-        std::cerr << "Failed to start pattern sequence projection: " << ret.ToString() << std::endl;
-        return 1;
-    }
-    std::cout << "Running..." << std::endl;    std::cout << "One-cell scan sequence projection started successfully!" << std::endl;
-    std::cout << "Check cell_sequence_preview_0.png for the first generated pattern." << std::endl;
-
-    // ===== Safe shutdown =====
-    // ret = projector.StopPatternSequence();
-    // if (ret.hasErrors()) {
-    //     std::cerr << "Warning: Failed to stop pattern sequence: " << ret.ToString() << std::endl;
-    // } else {
-    //     std::cout << "Pattern sequence stopped successfully." << std::endl;
-    // }
-
-    // projector.Disconnect();
-    // std::cout << "Projector disconnected. Safe to remove USB." << std::endl;
 
     return 0;
 }
