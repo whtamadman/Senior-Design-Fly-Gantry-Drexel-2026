@@ -22,8 +22,12 @@ namespace {
 
 constexpr unsigned int kPatternColumns = 912;
 constexpr unsigned int kPatternRows = 1140;
-constexpr unsigned int kDisplayedSquareSize = 100;
 constexpr unsigned int kDisplayedCellSize = 5;
+
+// Expand the movable region to almost the full projected rectangle.
+// Reduce these margins if you want the point to get even closer to the edges.
+constexpr unsigned int kGridMarginColumns = 20;
+constexpr unsigned int kGridMarginRows = 20;
 
 // Start with one arbitrary target cell inside the existing grid.
 constexpr unsigned int kInitialTargetCellColumn = 7;
@@ -118,12 +122,16 @@ DisplayPlacement GetProjectorDisplayPlacement() {
 
 GridGeometry BuildGridGeometry() {
     GridGeometry grid;
-    grid.squareWidth = kDisplayedSquareSize;
-    grid.squareHeight = std::min(kDisplayedSquareSize * 2U, kPatternRows);
+    grid.squareWidth = (kPatternColumns > (2U * kGridMarginColumns))
+        ? (kPatternColumns - (2U * kGridMarginColumns))
+        : kPatternColumns;
+    grid.squareHeight = (kPatternRows > (2U * kGridMarginRows))
+        ? (kPatternRows - (2U * kGridMarginRows))
+        : kPatternRows;
     grid.cellSpacingColumns = kDisplayedCellSize;
     grid.cellSpacingRows = kDisplayedCellSize * 2U;
-    grid.startCol = (kPatternColumns > grid.squareWidth) ? (kPatternColumns - grid.squareWidth) / 2U : 0U;
-    grid.startRow = (kPatternRows > grid.squareHeight) ? (kPatternRows - grid.squareHeight) / 2U : 0U;
+    grid.startCol = (kPatternColumns > grid.squareWidth) ? kGridMarginColumns : 0U;
+    grid.startRow = (kPatternRows > grid.squareHeight) ? kGridMarginRows : 0U;
     grid.cellColumns = std::max(1U, grid.squareWidth / grid.cellSpacingColumns);
     grid.cellRows = std::max(1U, grid.squareHeight / grid.cellSpacingRows);
     return grid;
@@ -291,6 +299,8 @@ int main() {
     ret = targetFrame.Save("video_mode_target_preview.png");
     std::cout << "Preview save: " << ret.ToString() << std::endl;
     std::cout << "Grid size: " << grid.cellColumns << "x" << grid.cellRows << std::endl;
+    std::cout << "Movable bounds: cols " << grid.startCol << "-" << (grid.startCol + grid.squareWidth - 1U)
+              << ", rows " << grid.startRow << "-" << (grid.startRow + grid.squareHeight - 1U) << std::endl;
     std::cout << "Initial target cell: (col=" << targetCellColumn << ", row=" << targetCellRow << ")" << std::endl;
     std::cout << "Approximate DMD target pixel: (x=" << targetColumn << ", y=" << targetRowValue << ")" << std::endl;
     std::cout << "Startup mode: " << ProjectionModeName(projectionMode) << std::endl;
