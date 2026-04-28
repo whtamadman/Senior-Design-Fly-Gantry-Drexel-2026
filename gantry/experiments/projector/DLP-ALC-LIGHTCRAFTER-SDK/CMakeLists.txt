@@ -336,6 +336,11 @@ add_executable(test_grid "${CMAKE_CURRENT_SOURCE_DIR}/../document.cpp")
 target_link_libraries(test_grid DLP_SDK)
 target_link_libraries(test_grid ${LIBS})
 
+# Manual pixel coordinate projection test executable
+add_executable(calibration_test "${CMAKE_CURRENT_SOURCE_DIR}/../calibration_test.cpp")
+target_link_libraries(calibration_test DLP_SDK)
+target_link_libraries(calibration_test ${LIBS})
+
 # Copy the resources directory
 file(COPY resources DESTINATION ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
 
