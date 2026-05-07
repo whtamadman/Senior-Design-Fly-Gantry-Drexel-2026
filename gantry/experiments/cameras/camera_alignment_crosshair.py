@@ -17,6 +17,9 @@ Controls:
 - 'f' - Toggle freeze frame
 - 's' - Save snapshot
 - 'r' - Toggle rulers
+- 'b' - Toggle Bottom camera header
+- 'c' - Toggle crosshair
+- 'm' - Toggle clean image mode
 - '+/-' - Adjust crosshair size
 - 'q' - Quit
 """
@@ -25,7 +28,7 @@ import numpy as np
 import cv2
 import os
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, simpledialog
 from pypylon import pylon
 from datetime import datetime
 
@@ -48,11 +51,15 @@ class CameraAlignmentCrosshair:
         self.cameras = []
         self.show_grid = False
         self.show_rulers = True
+        self.show_bottom_header = True
+        self.show_crosshair = True
+        self.minimal_view = False
         self.frozen = False
         self.frozen_frames = []
         self.crosshair_size = 40
         self.snapshot_counter = 0
         self.selected_device_indices = []
+        self.bottom_only_mode = False
         self.camera_labels = ["Bottom", "Side"] if num_cameras == 2 else [f"Camera {i}" for i in range(num_cameras)]
 
     def select_camera_ports(self, devices):
@@ -84,6 +91,7 @@ class CameraAlignmentCrosshair:
         ).grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 10))
 
         var_list = []
+        combo_list = []
         for idx, role in enumerate(role_labels):
             ttk.Label(container, text=f"{role} Camera:").grid(row=idx + 1, column=0, sticky="w", padx=(0, 8), pady=4)
             var = tk.StringVar()
@@ -92,8 +100,21 @@ class CameraAlignmentCrosshair:
             combo = ttk.Combobox(container, textvariable=var, values=options, state="readonly", width=56)
             combo.grid(row=idx + 1, column=1, sticky="ew", pady=4)
             var_list.append(var)
+            combo_list.append(combo)
 
-        button_row = len(role_labels) + 1
+        bottom_only_var = tk.BooleanVar(value=False)
+        if self.num_cameras == 2:
+            def on_bottom_only_toggle():
+                combo_list[1].configure(state="disabled" if bottom_only_var.get() else "readonly")
+
+            ttk.Checkbutton(
+                container,
+                text="Bottom camera only",
+                variable=bottom_only_var,
+                command=on_bottom_only_toggle,
+            ).grid(row=len(role_labels) + 1, column=0, columnspan=2, sticky="w", pady=(8, 0))
+
+        button_row = len(role_labels) + (2 if self.num_cameras == 2 else 1)
         button_frame = ttk.Frame(container)
         button_frame.grid(row=button_row, column=0, columnspan=2, sticky="e", pady=(12, 0))
 
@@ -101,7 +122,9 @@ class CameraAlignmentCrosshair:
 
         def on_start():
             indices = []
-            for var in var_list:
+            use_bottom_only = self.num_cameras == 2 and bottom_only_var.get()
+            vars_to_use = [var_list[0]] if use_bottom_only else var_list
+            for var in vars_to_use:
                 try:
                     indices.append(options.index(var.get()))
                 except ValueError:
@@ -113,6 +136,12 @@ class CameraAlignmentCrosshair:
                 return
 
             selected_indices.extend(indices)
+            self.bottom_only_mode = use_bottom_only
+            if self.bottom_only_mode:
+                self.num_cameras = 1
+                self.camera_labels = ["Bottom"]
+            else:
+                self.camera_labels = role_labels
             root.destroy()
 
         def on_cancel():
@@ -129,7 +158,6 @@ class CameraAlignmentCrosshair:
             return False
 
         self.selected_device_indices = selected_indices
-        self.camera_labels = role_labels
         return True
         
     def connect_cameras(self):
@@ -273,24 +301,30 @@ class CameraAlignmentCrosshair:
     
     def draw_rulers(self, img, color=(255, 255, 0)):
         """
-        Draw ruler markings along edges.
+        Draw ruler markings along all image edges.
         """
         h, w = img.shape[:2]
         
-        # Top ruler (every 50 pixels)
+        # Top and bottom rulers (every 50 pixels)
         for x in range(0, w, 50):
             tick_len = 20 if x % 100 == 0 else 10
             cv2.line(img, (x, 0), (x, tick_len), color, 1)
+            cv2.line(img, (x, h - 1), (x, h - 1 - tick_len), color, 1)
             if x % 100 == 0 and x > 0:
                 cv2.putText(img, str(x), (x - 15, 30), 
                            cv2.FONT_HERSHEY_SIMPLEX, 0.4, color, 1)
+                cv2.putText(img, str(x), (x - 15, h - 10), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.4, color, 1)
         
-        # Left ruler (every 50 pixels)
+        # Left and right rulers (every 50 pixels)
         for y in range(0, h, 50):
             tick_len = 20 if y % 100 == 0 else 10
             cv2.line(img, (0, y), (tick_len, y), color, 1)
+            cv2.line(img, (w - 1, y), (w - 1 - tick_len, y), color, 1)
             if y % 100 == 0 and y > 0:
                 cv2.putText(img, str(y), (tick_len + 5, y + 5), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.4, color, 1)
+                cv2.putText(img, str(y), (w - 55, y + 5), 
                            cv2.FONT_HERSHEY_SIMPLEX, 0.4, color, 1)
     
     def add_info_overlay(self, img, camera_idx):
@@ -298,20 +332,17 @@ class CameraAlignmentCrosshair:
         Add information overlay to image.
         """
         h, w = img.shape[:2]
-        cx, cy = w // 2, h // 2
         
         # Camera label
         label = self.camera_labels[camera_idx] if camera_idx < len(self.camera_labels) else f"Camera {camera_idx}"
-        cv2.putText(img, f"{label} Camera", (10, 30), 
-                   cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-        
-        # Resolution
-        cv2.putText(img, f"Resolution: {w}x{h}", (10, 60), 
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
-        
-        # Center coordinates
-        cv2.putText(img, f"Center: ({cx}, {cy})", (10, 85), 
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
+        is_bottom_camera = label.strip().lower() == "bottom" or (self.num_cameras == 2 and camera_idx == 0)
+        if not (is_bottom_camera and not self.show_bottom_header):
+            cv2.putText(img, f"{label} Camera", (10, 30), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+            
+            # Resolution
+            cv2.putText(img, f"Resolution: {w}x{h}", (10, 60), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
         
         # Status
         y_offset = h - 100
@@ -321,21 +352,61 @@ class CameraAlignmentCrosshair:
             y_offset += 30
         
         # Instructions
-        cv2.putText(img, "g=grid r=rulers f=freeze s=save +/-=size q=quit", 
+        cv2.putText(img, "g=grid r=rulers b=bottom-info c=crosshair f=freeze q=quit", 
                    (10, h - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
     
-    def save_snapshot(self, frames):
+    def prompt_snapshot_coordinates(self):
+        """
+        Prompt for manual Cx/Cy and Px/Py pixel coordinates via dialog.
+        Returns a tuple (cx, cy, px, py) or None if canceled.
+        """
+        dialog_root = tk.Tk()
+        dialog_root.withdraw()
+        dialog_root.attributes("-topmost", True)
+
+        try:
+            cx = simpledialog.askinteger("Snapshot Coordinates", "Enter Cx:", parent=dialog_root)
+            if cx is None:
+                print("Snapshot canceled.")
+                return None
+
+            cy = simpledialog.askinteger("Snapshot Coordinates", "Enter Cy:", parent=dialog_root)
+            if cy is None:
+                print("Snapshot canceled.")
+                return None
+
+            px = simpledialog.askinteger("Snapshot Coordinates", "Enter Px:", parent=dialog_root)
+            if px is None:
+                print("Snapshot canceled.")
+                return None
+
+            py = simpledialog.askinteger("Snapshot Coordinates", "Enter Py:", parent=dialog_root)
+            if py is None:
+                print("Snapshot canceled.")
+                return None
+
+        except Exception as e:
+            print(f"Coordinate input error: {e}")
+            return None
+        finally:
+            dialog_root.destroy()
+
+        return cx, cy, px, py
+
+    def save_snapshot(self, frames, coords):
         """
         Save current frames as snapshot images.
         """
+        cx, cy, px, py = coords
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        save_dir = os.path.dirname(__file__)
+        save_dir = os.path.join(os.path.dirname(__file__), "frames")
+        os.makedirs(save_dir, exist_ok=True)
         
         for i, frame in enumerate(frames):
             if frame is not None:
                 label = self.camera_labels[i] if i < len(self.camera_labels) else f"cam{i}"
                 camera_name = label.lower().replace(" ", "_")
-                filename = f"alignment_snapshot_{camera_name}_{timestamp}.png"
+                filename = f"mapping_{camera_name}_Cx{cx}_Cy{cy}&Px{px}_Py{py}_{timestamp}.png"
                 filepath = os.path.join(save_dir, filename)
                 cv2.imwrite(filepath, frame)
                 print(f"  Saved: {filename}")
@@ -361,6 +432,9 @@ class CameraAlignmentCrosshair:
         print("\nControls:")
         print("  g - Toggle grid overlay")
         print("  r - Toggle rulers")
+        print("  b - Toggle Bottom camera header")
+        print("  c - Toggle crosshair")
+        print("  m - Toggle clean image mode")
         print("  f - Freeze/unfreeze frame")
         print("  s - Save snapshot images")
         print("  + - Increase crosshair size")
@@ -396,22 +470,28 @@ class CameraAlignmentCrosshair:
                 for i, (frame, window_name) in enumerate(zip(frames, window_names)):
                     if frame is None:
                         continue
+
+                    # Keep the original frame untouched so snapshot saves are raw images.
+                    display_frame = frame.copy()
                     
-                    # Apply overlays
-                    if self.show_grid:
-                        self.draw_grid(frame)
-                    
-                    if self.show_rulers:
-                        self.draw_rulers(frame)
-                    
-                    # Draw crosshair (always visible)
-                    self.draw_crosshair(frame, color=(0, 255, 0), thickness=2)
-                    
-                    # Add info overlay
-                    self.add_info_overlay(frame, i)
+                    # In clean mode, show only the raw camera image with no overlays.
+                    if not self.minimal_view:
+                        # Apply overlays
+                        if self.show_grid:
+                            self.draw_grid(display_frame)
+                        
+                        if self.show_rulers:
+                            self.draw_rulers(display_frame)
+                        
+                        # Draw crosshair
+                        if self.show_crosshair:
+                            self.draw_crosshair(display_frame, color=(0, 255, 0), thickness=2)
+                        
+                        # Add info overlay
+                        self.add_info_overlay(display_frame, i)
                     
                     # Display
-                    cv2.imshow(window_name, frame)
+                    cv2.imshow(window_name, display_frame)
                 
                 # Handle keyboard input
                 key = cv2.waitKey(30) & 0xFF
@@ -429,6 +509,21 @@ class CameraAlignmentCrosshair:
                     self.show_rulers = not self.show_rulers
                     status = "ON" if self.show_rulers else "OFF"
                     print(f"Rulers: {status}")
+
+                elif key == ord('b'):
+                    self.show_bottom_header = not self.show_bottom_header
+                    status = "ON" if self.show_bottom_header else "OFF"
+                    print(f"Bottom camera header: {status}")
+
+                elif key == ord('c'):
+                    self.show_crosshair = not self.show_crosshair
+                    status = "ON" if self.show_crosshair else "OFF"
+                    print(f"Crosshair: {status}")
+
+                elif key == ord('m'):
+                    self.minimal_view = not self.minimal_view
+                    status = "ON" if self.minimal_view else "OFF"
+                    print(f"Clean image mode: {status}")
                 
                 elif key == ord('f'):
                     self.frozen = not self.frozen
@@ -437,7 +532,9 @@ class CameraAlignmentCrosshair:
                 
                 elif key == ord('s'):
                     if frames:
-                        self.save_snapshot(frames)
+                        coords = self.prompt_snapshot_coordinates()
+                        if coords is not None:
+                            self.save_snapshot(frames, coords)
                 
                 elif key == ord('+') or key == ord('='):
                     self.crosshair_size = min(self.crosshair_size + 5, 100)

@@ -22,7 +22,7 @@ namespace {
 
 constexpr unsigned int kPatternColumns = 912;
 constexpr unsigned int kPatternRows = 1140;
-constexpr unsigned int kDisplayedCellSize = 5;
+constexpr unsigned int kDisplayedCellSize = 2;
 
 // Expand the movable region to almost the full projected rectangle.
 // Reduce these margins if you want the point to get even closer to the edges.
@@ -33,10 +33,11 @@ constexpr unsigned int kGridMarginRows = 20;
 constexpr unsigned int kInitialTargetCellColumn = 7;
 constexpr unsigned int kInitialTargetCellRow = 12;
 
-// Make the target visible enough to confirm the optical path while still
-// keeping every non-target area black.
+// Minimum spot size for SingleTarget mode is now 1x1 (true single DMD pixel).
+// Note: the apparent dot size on a camera is bounded by your optics/diffraction,
+// not by these software values.
 constexpr unsigned int kMinimumSpotWidthPixels = 3;
-constexpr unsigned int kMinimumSpotHeightPixels = 6;
+constexpr unsigned int kMinimumSpotHeightPixels = 4;
 constexpr unsigned int kLargeSpotWidthPixels = 40;
 constexpr unsigned int kLargeSpotHeightPixels = 80;
 
@@ -207,8 +208,11 @@ dlp::ReturnCode BuildProjectionFrame(const GridGeometry& grid,
         spotWidthPixels = std::max(kLargeSpotWidthPixels, grid.cellSpacingColumns * 6U);
         spotHeightPixels = std::max(kLargeSpotHeightPixels, grid.cellSpacingRows * 6U);
     } else {
-        spotWidthPixels = std::max(kMinimumSpotWidthPixels, grid.cellSpacingColumns > 2U ? grid.cellSpacingColumns - 2U : 1U);
-        spotHeightPixels = std::max(kMinimumSpotHeightPixels, grid.cellSpacingRows > 2U ? grid.cellSpacingRows - 2U : 1U);
+        // SingleTarget: force a true single DMD pixel (1x1).
+        // kMinimumSpotWidthPixels and kMinimumSpotHeightPixels are both 3,
+        // so this always resolves to exactly three pixels regardless of cell spacing.
+        spotWidthPixels  = kMinimumSpotWidthPixels;
+        spotHeightPixels = kMinimumSpotHeightPixels;
     }
 
     const int spotStartColumn = std::max(0, static_cast<int>(*targetColumn) - static_cast<int>(spotWidthPixels / 2U));
@@ -230,7 +234,7 @@ void PrintControls() {
     std::cout << "  1       : full white test" << std::endl;
     std::cout << "  2       : full black test" << std::endl;
     std::cout << "  3       : large bright block (easy visibility check)" << std::endl;
-    std::cout << "  4       : precise single target" << std::endl;
+    std::cout << "  4       : precise single target (1x1 DMD pixel)" << std::endl;
     std::cout << "  W/A/S/D : move the target cell for modes 3 and 4" << std::endl;
     std::cout << "  B       : blank/unblank the output" << std::endl;
     std::cout << "  P       : save the current frame preview" << std::endl;

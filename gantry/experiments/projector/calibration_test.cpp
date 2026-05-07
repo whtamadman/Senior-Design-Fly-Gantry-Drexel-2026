@@ -1,8 +1,12 @@
 #include <algorithm>
+#include <chrono>
+#include <fstream>
 #include <iostream>
 #include <sstream>
 #include <string>
 #include <vector>
+#include <cmath>
+#include <thread>
 
 #ifdef _WIN32
 #ifndef NOMINMAX
@@ -23,11 +27,103 @@ namespace {
 
 constexpr unsigned int kDmdColumns = 912;
 constexpr unsigned int kDmdRows = 1140;
-constexpr unsigned int kSpotWidthPixels = 7;
-constexpr unsigned int kSpotHeightPixels = 7;
+constexpr unsigned int kSpotWidthPixels = 3;
+constexpr unsigned int kSpotHeightPixels = 4;
 
 // Keep false when TI GUI already owns USB HID and projector is already in video mode.
 constexpr bool kUseUsbProjectorControl = false;
+
+// 3x3 homography matrix for camera -> projector transformation
+struct HomographyMatrix {
+	double data[3][3];
+	bool loaded = false;
+};
+
+// Forward declaration
+unsigned int ClampUnsigned(unsigned int value, unsigned int maxValue);
+
+// Load camera_to_projector_matrix.csv (3x3 CSV file)
+bool LoadHomographyMatrix(const std::string &filepath, HomographyMatrix &H) {
+	std::ifstream file(filepath);
+	if (!file.is_open()) {
+		std::cerr << "Could not open " << filepath << std::endl;
+		return false;
+	}
+
+	std::string line;
+	for (int row = 0; row < 3 && std::getline(file, line); ++row) {
+		std::istringstream lineStream(line);
+		std::string cell;
+		for (int col = 0; col < 3 && std::getline(lineStream, cell, ','); ++col) {
+			try {
+				H.data[row][col] = std::stod(cell);
+			} catch (...) {
+				std::cerr << "Parse error at row " << row << ", col " << col << std::endl;
+				return false;
+			}
+		}
+	}
+
+	H.loaded = true;
+	std::cout << "Loaded homography matrix from " << filepath << std::endl;
+	return true;
+}
+
+// Try to find and load calibration matrix from common locations
+bool TryLoadHomographyMatrix(HomographyMatrix &H) {
+	// List of paths to try (relative to current working directory)
+	const std::vector<std::string> paths = {
+		"camera_to_projector_matrix.csv",
+		"../camera_to_projector_matrix.csv",
+		"../../camera_to_projector_matrix.csv",
+		"../../../cameras/camera_to_projector_matrix.csv",
+	};
+
+	for (const auto &path : paths) {
+		std::ifstream test(path);
+		if (test.good()) {
+			test.close();
+			std::cout << "Searching for matrix file..." << std::endl;
+			return LoadHomographyMatrix(path, H);
+		}
+	}
+
+	std::cerr << "Could not find camera_to_projector_matrix.csv in any standard location." << std::endl;
+	std::cerr << "Searched paths:" << std::endl;
+	for (const auto &path : paths) {
+		std::cerr << "  - " << path << std::endl;
+	}
+	return false;
+}
+
+// Apply homography: [px_tilde, py_tilde, w_tilde] = H * [cx, cy, 1]^T
+// Then normalize: px = px_tilde / w_tilde, py = py_tilde / w_tilde
+// Returns (px, py) clamped to [0, kDmdColumns-1] x [0, kDmdRows-1]
+bool ApplyHomography(const HomographyMatrix &H, double cx, double cy,
+					  unsigned int &out_px, unsigned int &out_py) {
+	if (!H.loaded) {
+		std::cerr << "Homography matrix not loaded." << std::endl;
+		return false;
+	}
+
+	double px_tilde = H.data[0][0] * cx + H.data[0][1] * cy + H.data[0][2];
+	double py_tilde = H.data[1][0] * cx + H.data[1][1] * cy + H.data[1][2];
+	double w_tilde = H.data[2][0] * cx + H.data[2][1] * cy + H.data[2][2];
+
+	if (std::fabs(w_tilde) < 1e-6) {
+		std::cerr << "Homography scale factor near zero." << std::endl;
+		return false;
+	}
+
+	double px = px_tilde / w_tilde;
+	double py = py_tilde / w_tilde;
+
+	// Clamp to valid range
+	out_px = ClampUnsigned(static_cast<unsigned int>(std::round(px)), kDmdColumns - 1U);
+	out_py = ClampUnsigned(static_cast<unsigned int>(std::round(py)), kDmdRows - 1U);
+
+	return true;
+}
 
 struct DisplayPlacement {
 	int x = 0;
@@ -135,6 +231,8 @@ void PrintHelp() {
 	std::cout << "Commands:" << std::endl;
 	std::cout << "  x y           Set target pixel in DMD coordinates (0-" << (kDmdColumns - 1U)
 			  << ", 0-" << (kDmdRows - 1U) << ")" << std::endl;
+	std::cout << "  cam cx cy     Transform from camera coords to DMD and display" << std::endl;
+	std::cout << "  sweep [delay_ms]  Iterate through all 800x600 camera points (default delay 50ms)" << std::endl;
 	std::cout << "  norm u v      Set target with normalized coords in [0, 1]" << std::endl;
 	std::cout << "  blank         Set all-black frame" << std::endl;
 	std::cout << "  unblank       Show current white target again" << std::endl;
@@ -147,10 +245,144 @@ unsigned int ClampUnsigned(unsigned int value, unsigned int maxValue) {
 	return std::min(value, maxValue);
 }
 
+// Load camera points from CSV and sweep through them
+void SweepCameraGrid(const HomographyMatrix &H,
+					  cv::Mat &frameMat,
+					  dlp::Image &frame,
+					  unsigned int &targetX,
+					  unsigned int &targetY,
+					  const std::string &windowName,
+					  unsigned int delayMs) {
+	const std::vector<std::string> parentPrefixes = {
+		".",
+		"..",
+		"../..",
+		"../../..",
+		"../../../..",
+		"../../../../..",
+		"../../../../../..",
+		"../../../../../../..",
+	};
+
+	const std::vector<std::string> candidateSuffixes = {
+		"camera_points.csv",
+		"build/bin/Release/camera_points.csv",
+		"DLP-ALC-LIGHTCRAFTER-SDK/build/bin/Release/camera_points.csv",
+	};
+
+	std::string filename;
+	for (const auto &prefix : parentPrefixes) {
+		for (const auto &suffix : candidateSuffixes) {
+			const std::string candidate = (prefix == ".") ? suffix : (prefix + "/" + suffix);
+			std::ifstream test(candidate);
+			if (test.good()) {
+				test.close();
+				filename = candidate;
+				break;
+			}
+		}
+		if (!filename.empty()) {
+			break;
+		}
+	}
+
+	if (filename.empty()) {
+		std::cerr << "Could not find camera_points.csv for sweep." << std::endl;
+		std::cerr << "Searched prefixes:" << std::endl;
+		for (const auto &prefix : parentPrefixes) {
+			std::cerr << "  - " << prefix << std::endl;
+		}
+		return;
+	}
+
+	std::ifstream file(filename);
+	if (!file.is_open()) {
+		std::cerr << "Could not open " << filename << std::endl;
+		return;
+	}
+
+	std::cout << "Using camera points file: " << filename << std::endl;
+
+	std::string line;
+	std::getline(file, line);  // Skip header
+
+	unsigned int pointCount = 0;
+	unsigned int skippedCount = 0;
+
+	std::cout << "Starting camera grid sweep (press Ctrl+C to stop)..." << std::endl;
+
+	while (std::getline(file, line) && cv::getWindowProperty(windowName, cv::WND_PROP_VISIBLE) >= 1) {
+		std::istringstream lineStream(line);
+		std::string cell;
+		double cx = 0.0, cy = 0.0;
+
+		if (std::getline(lineStream, cell, ',')) {
+			try {
+				cx = std::stod(cell);
+			} catch (...) {
+				++skippedCount;
+				continue;
+			}
+		}
+
+		if (std::getline(lineStream, cell, ',')) {
+			try {
+				cy = std::stod(cell);
+			} catch (...) {
+				++skippedCount;
+				continue;
+			}
+		}
+
+		// Apply homography
+		unsigned int px = 0, py = 0;
+		if (!ApplyHomography(H, cx, cy, px, py)) {
+			++skippedCount;
+			continue;
+		}
+
+		targetX = px;
+		targetY = py;
+
+		// Rebuild and display frame
+		dlp::ReturnCode ret = BuildFrame(targetX, targetY, false, &frame);
+		if (ret.hasErrors()) {
+			std::cerr << "Failed to rebuild frame: " << ret.ToString() << std::endl;
+			break;
+		}
+
+		ret = frame.GetOpenCVData(&frameMat);
+		if (ret.hasErrors()) {
+			std::cerr << "Failed to refresh OpenCV frame: " << ret.ToString() << std::endl;
+			break;
+		}
+
+		cv::imshow(windowName, frameMat);
+		cv::waitKey(1);
+
+		++pointCount;
+		if (pointCount % 10000 == 0) {
+			std::cout << "Processed " << pointCount << " points..." << std::endl;
+		}
+
+		// Delay between frames
+		std::this_thread::sleep_for(std::chrono::milliseconds(delayMs));
+	}
+
+	file.close();
+	std::cout << "Sweep complete. Processed: " << pointCount << " points, Skipped: " << skippedCount << std::endl;
+}
+
 }  // namespace
 
 int main() {
 	std::cout << "Starting manual projector coordinate test..." << std::endl;
+
+	// Load homography matrix for camera -> projector transformation
+	HomographyMatrix H;
+	if (!TryLoadHomographyMatrix(H)) {
+		std::cerr << "Warning: Could not load homography matrix. Camera->DMD mapping disabled." << std::endl;
+	}
 
 	dlp::LCr4500 projector;
 	bool projectorControlAvailable = false;
@@ -248,6 +480,32 @@ int main() {
 		} else if (token == "save") {
 			ret = frame.Save("calibration_test_preview.png");
 			std::cout << "Save status: " << ret.ToString() << std::endl;
+		} else if (token == "sweep") {
+			unsigned int delayMs = 50;  // Default delay 50ms
+			if (iss >> delayMs) {
+				std::cout << "Using delay: " << delayMs << " ms" << std::endl;
+			} else {
+				std::cout << "Using default delay: 50 ms" << std::endl;
+			}
+			SweepCameraGrid(H, frameMat, frame, targetX, targetY, windowName, delayMs);
+		} else if (token == "cam") {
+			double cx = 0.0;
+			double cy = 0.0;
+			if (!(iss >> cx >> cy)) {
+				std::cout << "Usage: cam cx cy" << std::endl;
+			} else {
+				unsigned int px = 0;
+				unsigned int py = 0;
+				if (ApplyHomography(H, cx, cy, px, py)) {
+					targetX = px;
+					targetY = py;
+					blankOutput = false;
+					refreshFrame = true;
+					std::cout << "Camera (" << cx << ", " << cy << ") -> DMD (" << px << ", " << py << ")" << std::endl;
+				} else {
+					std::cout << "Homography transform failed." << std::endl;
+				}
+			}
 		} else if (token == "norm") {
 			double u = 0.0;
 			double v = 0.0;
