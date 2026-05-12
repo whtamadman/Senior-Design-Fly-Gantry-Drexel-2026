@@ -8,74 +8,6 @@ This project includes the following libraries:
 */
 
 ////// Include The Necessary Header Files in The Local Directory://////
-// '#include' tells the preprocessor to treat the contents of these specified files as if 
-//they appear in the source program at the point where the directive appears
-
-/*
-#include <conio.h>
-#include <math.h>//For all the math functions
-#include <iostream>// For cout, input output stream heade
-#include <string> 
-#include <ctime> // localtime
-#include <iomanip> // put_time
-#include <sstream> // stringstream
-#include "windows.h"// windows API,communicate with windows. For BOOL, TRUE...
-#include <chrono>
-
-#include "stdio.h"
-#include <fstream>
-#include <algorithm> 
-#include <stdlib.h> // standard library header. 
-
-//---Hardware part---//
-// The DAQ reads the encoder info from the decoder and modulates the proportional control of the motors.
-#include "USB4.h" // USB4 is the DECODER. The decoder interprets the encoder quadrative signal, counting the marks it has passed and calculating the absolute X and Y positions of the bottom camera
-#include <NIDAQmx.h> // NIDAQmx is a measurement software for the NI-DAQ.
-#include "Spinnaker.h" // The SDK for the Top Camera
-#include "SpinGenApi/SpinnakerGenApi.h"
-
-#include <pylon/PylonIncludes.h>
-#ifdef PYLON_WIN_BUILD
-#    include <pylon/PylonGUI.h> 
-#endif
-#include <pylon/usb/BaslerUsbInstantCamera.h> // Basler and Pylon control the bottom camera
-#include "HardwareTriggerConfiguration.h"
-
-//---Parallele section---//
-#include <thread>
-#include <omp.h> // #pragma omp is used to specify directives and clauses
-#include <queue>
-#include <concurrent_queue.h> // A sequence container class that allows first-in, first-out access to its elements
-
-//---Image processing---//
-//To make opencv2 library work, add path. 
-// Open Project-->Properties-->Configuration properties --> VC++ Directories
-// After comparing, copy those paths from flygantryV2's propeties and add them in your properties
-#include <opencv2/highgui/highgui.hpp> // openCV is an image processing packet for python and C++
-#include <opencv2/imgproc/imgproc.hpp> // openCV provides functions to process the images acquired from the cameras. 
-#include <opencv2/videoio/videoio.hpp> // openCV provides a means of accessing the inputs and outputs from the cameras. 
-#include <opencv2/core/core.hpp> // CV = computer vision
-
-//---YOLO---//
-#include <yolo_v2_class.hpp>
-
-
-//---For custom classes---//
-// These head file need uderlying .cpp file in Source Files at the same time
-#include "gantry.h"
-#include "position.h"
-#include "filter.h" // Interprets images from the arena and tries to track, predict, and correct those images.
-#include "topCamProc.h"
-#include "Calibration.h"
-#include "OptoStim.h"
-#include "Config.h"
-#include "WindowManager.h"
-#include "BinarySaveData.h"
-#include "MatlabSaveData.h"
-#include "flyViewStruc.h"
-#include "pch.h"
-
-*/
 
 #include "pch.h"
 #include <conio.h>
@@ -99,9 +31,7 @@ This project includes the following libraries:
 #include <opencv2/imgproc/imgproc.hpp> // openCV provides functions to process the images acquired from the cameras. 
 #include <opencv2/videoio/videoio.hpp> // openCV provides a means of accessing the inputs and outputs from the cameras. 
 #include <opencv2/core/core.hpp> // CV = computer vision
-//#include <C:/darknet/include/yolo_v2_class.hpp>
 #include <yolo_v2_class.hpp>
-//#include <opencv2/ximgproc.hpp>
 #include <ctime>   // localtime
 #include <sstream> // stringstream
 #include <iomanip> // put_time
@@ -114,7 +44,6 @@ This project includes the following libraries:
 #include "topCamProc.h"
 #include "OptoStim.h"
 #include "WindowManager.h"
-#include "Calibration.h"
 #include "flyViewStruc.h"
 #include "BinarySaveData.h"
 #include "MatlabSaveData.h"
@@ -122,8 +51,6 @@ This project includes the following libraries:
 
 // The DAQ reads the encoder info from the decoder and modulates the proportional control of the motors. 
 #include <NIDAQmx.h> // NIDAQmx is a measurement software for the NI-DAQ.
-#include "Spinnaker.h" // The SDK for the Top Camera
-#include "SpinGenApi/SpinnakerGenApi.h"
 
 #include <pylon/PylonIncludes.h>
 #ifdef PYLON_WIN_BUILD
@@ -153,6 +80,7 @@ using namespace concurrency;// refers to PPL for current_queue, etc
 float objectSpaceResolution = 4.8 / 0.5; // 9.6 
 
 unsigned long imgCnt = 0; // image count. Corresponds to chunkStruc.dataNum that is iteratively increased. Most likely corresponds to frame count
+unsigned long imgCntSide = 0; // side camera image count
 unsigned long encCnt = 0; // encoder count. Corresponds to encoderDataInst.dataNum that is iteratively increased. Most likely corresponds to encoder position
 
 const double frequency = FREQ; // sets the frequency, 480.0, as a constant. 
@@ -167,6 +95,11 @@ unsigned long encoderY = 0;
 Point2f bottomCamRecentFlyPos(150000.0f, 150000.0f); // initialize this value roughly to the center. Does not really matter what the initial value is though.
 // 150000 is the default value for the initial position of the absolute X and Y position for the center of mass. This changes if you calibrate the top camera. 
 
+// Fly pixel position tracking for light beam thread
+Point flyBodyPixelPos(0, 0); // Current fly body center position in pixels (updates at ~480 Hz)
+Point flyHeadPixelPos(0, 0); // Current fly head center position in pixels
+bool flyDetectedInFrame = false; // Whether fly is currently detected by YOLO
+
 boolean stream = true; // data stream is on and running
 
 // The concurrent_queue class is a sequence container class that allows first-in, first-out access to its elements.
@@ -179,6 +112,10 @@ concurrent_queue<Mat> arenaStream; // Shows a video of the arena.
 concurrent_queue<Mat> flyStream; // This appears to setup flyStream which shows a popup video frame of the fly
 concurrent_queue<Mat> flyStreamRaw; // Shows a video of the raw fly stream data. 
 concurrent_queue<flyViewStruc> flyViewSaveQ;
+
+// Side camera data queues
+concurrent_queue<Mat> sideCamStream; // Side camera video stream
+unsigned long sideCamCorrectdt = 1.0 / frequency * pow(10, 9); // Side camera frame timing check
 
 
 
@@ -212,13 +149,6 @@ public:
 			{
 				chunkStruc.imageDamaged = 0; // 0 = IMAGE NOT DAMAGED
 			}
-
-			//if (ptrGrabResult->GetNumberOfSkippedImages())
-			//{
-			//	cout << "Skipped " << ptrGrabResult->GetNumberOfSkippedImages() << " image." << endl;
-			//}
-
-			GenApi::CIntegerPtr chunkTimestamp(ptrGrabResult->GetChunkDataNodeMap().GetNode("ChunkTimestamp"));
 
 
 			// prints if there is too much time between frames. not used
@@ -254,11 +184,43 @@ private:
 	Pylon::CPylonImage pylonImage;
 	Mat cvimg;
 	flyViewStruc chunkStruc;
-	//2.083374*10^-3 
 	unsigned long long int prevTime = 0;
 	unsigned long long int currentTime = 0;
 };
 
+
+// 1b. Class for capturing video frames from the side camera, using the Pylon API
+class CImageEventPrinterSide : public Pylon::CImageEventHandler
+{
+	// SIDE CAMERA IMAGE EVENT HANDLER
+public:
+	CImageEventPrinterSide()
+	{
+		formatConverter.OutputPixelFormat = Pylon::PixelType_Mono8;
+	}
+
+	virtual void OnImageGrabbed(Pylon::CInstantCamera& camera, const Pylon::CGrabResultPtr& ptrGrabResult)
+	{
+		if (ptrGrabResult->GrabSucceeded())
+		{
+			formatConverter.Convert(pylonImage, ptrGrabResult);
+			cvimg = cv::Mat(ptrGrabResult->GetHeight(), ptrGrabResult->GetWidth(), CV_8UC1, (uint8_t*)pylonImage.GetBuffer());
+			
+			Mat imgClone = cvimg.clone();
+			sideCamStream.push(imgClone);
+			imgCntSide++;
+		}
+		else
+		{
+			std::cout << "Side Camera Error: " << ptrGrabResult->GetErrorCode() << " " << ptrGrabResult->GetErrorDescription() << " " << std::endl;
+		}
+	}
+
+private:
+	Pylon::CImageFormatConverter formatConverter;
+	Pylon::CPylonImage pylonImage;
+	Mat cvimg;
+};
 
 
 // 2. INITIATE THE VARIABLES THE ENCODER WILL STORE: 
@@ -323,7 +285,6 @@ int main(int argc, char* argv[]) // argc: argument count, argv: argument vector
 	// pow(10,6) = 10^6
 	int spmr = round(samplingPeriod) / 2 - 1;//sampling Period x register
 	// Be Carefull! round(samplingPeriod) may not an even number(2,4,6,8...)
-	// cout << samplingPeriod << " " << spmr << endl;// output 1e-09 -1
 
 	short iDeviceCount = 0; // iDevice corresponds to the DECODER
 	int iResult = 0; // initially set to 0, 
@@ -343,18 +304,14 @@ int main(int argc, char* argv[]) // argc: argument count, argv: argument vector
 	unsigned long dt = 0.0;
 
 	BOOL bVal = TRUE;
-	// assume found.
-	// variables for deciding whether the bottom camera should move
-	// left over from binarization image processing, now just sets both if yolo finds the fly
-	bool bottomCamFlyFound = true; // whether or not the bottom camera has found the fly -> Why is this default set to true?--> IT WILL BE VALUED BY couldBeFlySize
-	bool couldBeFlySize = false;// If a certain number of pixels acquired from the top! camera is within a range for what could be a fly, the system may have found a fly
+	// Variables for fly tracking with bottom camera only
+	bool bottomCamFlyFound = true; // whether or not the bottom camera has found the fly with YOLO
+	bool couldBeFlySize = false;// If YOLO detects a fly
 	bool endcoderWithinArena = false;// Checks the positions of the encoder and determines if it is within the coordinates for the arena
-	// Config it as false
 
-	bool firstCalling1 = true;
-	bool firstCalling2 = true;
-	bool firstCalling3 = true;// these three variabels are using to defined if the top, bottom or
-	//no camera is in control
+	// Control state variables (simplified for bottom-camera-only mode)
+	bool firstCalling1 = true; // track when camera starts/stops tracking
+	bool firstCalling3 = true; // track when camera stops
 
 
 	//Window Manager
@@ -494,12 +451,10 @@ int main(int argc, char* argv[]) // argc: argument count, argv: argument vector
 	// Note that original GantryConfig.txt is used to run current flygantrycodeV2, don't forget to remove the text config file when finish this code test 
 	// Optogenetic Stimulation class
 	OptoStim optoStim(motors, frequency, wnd, config);
-	// Class for handling the top camera, its video images, and its data related to the arena dimensions
+	// Arena processing simplified for bottom camera only mode
 	ArenaProc arenaP(optoStim, wnd);
-	// Loads camera calibration coefficients. This should be left alone unless a new camera is used.
-	arenaP.loadCameraCalibration("C:\\Program Files\\Gantry\\Calibration\\coeffs_roi"); // 19 coeffs in this file, 14 will be shown 
-	// arenaP and ArenaProc refer to arena proportional control, which changes the speed of the motor controlling the camera in a manner proportional to the distance from the center of the fly.
-	// ArenaProc is from <topCamProc.h>
+	// Set arena parameters directly since no top camera calibration is needed
+	arenaP.set_for_exp = true; // Always ready for experiment in bottom-camera-only mode
 
 	int prev_rest = 1000; // prev_rest is only mentioned in this line. Does it do anything?
 	Size fvFrameSize(592, 600); // sets frame size as 592x600 as the image resolution
@@ -519,7 +474,6 @@ int main(int argc, char* argv[]) // argc: argument count, argv: argument vector
 	cout << "	(1) Bottom camera only" << endl;
 	cout << "	(2) Toggle between top and bottom cameras" << endl;
 	cout << "	(3) Parallel run of top and bottom cameras" << endl;
-	//	cin >> option;
 
 	// Turn on illuminating LED
 	motors.DriveIlluminatingLED();
@@ -528,107 +482,10 @@ int main(int argc, char* argv[]) // argc: argument count, argv: argument vector
 
 
 	//----- Build 6 Parallel Sections----//
-	// Six sections: CALIBRATING TOP CAMERA, CALIBRATING BOTTOM CAMERA, Fly tracking with yolo, Driving the motors(Controling part), Disply bottom view, Save Data
-#pragma omp parallel sections num_threads(6)//6 section
+	// Six sections: BOTTOM CAMERA, Fly tracking with YOLO, Motor control, Display bottom view, Save Data, SIDE CAMERA
+	// NOTE: Top camera section removed - this version uses bottom camera + side camera for tracking
+#pragma omp parallel sections num_threads(6)//6 sections
 	{
-#pragma omp section
-
-		{
-			// CALIBRATING TOP CAMERA:
-			// code for starting the video acquisition for the top camera. the width, height, and offsets can be changed if needed
-			using namespace Spinnaker; // Driver that controls the top camera
-			using namespace Spinnaker::GenApi;
-			using namespace Spinnaker::GenICam;
-
-			//////For arena view camera (Point Grey. Spinnaker SDK)//////
-			// Initialize camera
-			SystemPtr system = System::GetInstance(); // ptr = pointer: System pointer, get sponnaker system
-			CameraList camList = system->GetCameras(); // identify the cameras being controlled by this system
-			CameraPtr pCam = camList.GetByIndex(0); // pCam is set as the first camera in camListm, here it is the top Cam
-			pCam->Init(); // initialize pCam (what is pCam referring to? proportional control camera? parallel camera? parallel run of top and bottom cameras?)
-			pCam->Width = 864;
-			pCam->Height = 864;
-			pCam->OffsetX = 560;//
-			pCam->OffsetY = 260;
-			// Retrieve GenICam nodemap
-			// nodemap: saves camera's perematers like exposuretime...
-			INodeMap& nodeMap = pCam->GetNodeMap(); // initialized and regular node maps to get set
-			CEnumerationPtr ptrAcquisitionMode = nodeMap.GetNode("AcquisitionMode"); // top camera is actively acquiring nodes
-			CEnumEntryPtr ptrAcquisitionModeContinuous = ptrAcquisitionMode->GetEntryByName("Continuous"); // top camera is continuously acquiring frames 
-			// Retrieve integer value from entry node
-			int64_t acquisitionModeContinuous = ptrAcquisitionModeContinuous->GetValue(); // grabs the value acquired by the top camera's continuous node search as a 64 bit integer
-			// Set integer value from entry node as new value of enumeration node
-			ptrAcquisitionMode->SetIntValue(acquisitionModeContinuous);
-			cout << "Acquisition mode set to continuous..." << endl;
-			pCam->BeginAcquisition(); // start acquiring images
-			bool allFound = false; // Sets the initial state for bottom camera calibration such that NOT ALL MARKERS HAVE BEEN FOUND
-			char exp_yes = 'n'; // the initial input expression set to "n"
-
-			// loop for capturing top camera images
-			while (TRUE)
-			{
-				ImagePtr pResultImage = pCam->GetNextImage(); // gets the next image
-				if (pResultImage->IsIncomplete()) // If the image acquired is incomplete
-				{
-					// Retreive and print the image status description
-					cout << "Image incomplete: "
-						<< Image::GetImageStatusDescription(pResultImage->GetImageStatus())
-						<< "..." << endl << endl;
-				}
-				else
-				{
-					size_t width = pResultImage->GetWidth(); // get the width and height of the completed image
-
-					size_t height = pResultImage->GetHeight();
-
-					ImagePtr convertedImage = pResultImage->Convert(PixelFormat_BGR8, NEAREST_NEIGHBOR); // color processing algorithm from spinnaker library
-
-					unsigned int XPadding = convertedImage->GetXPadding(); // Padding is the space between an image or cell contents and its outside border. 
-					unsigned int YPadding = convertedImage->GetYPadding(); // (0,0)
-					unsigned int rowsize = convertedImage->GetWidth(); // Stores row and column sizes based on width and height of completed, converted image
-					unsigned int colsize = convertedImage->GetHeight();//(864,864)
-
-					Mat cvimg = cv::Mat(colsize + YPadding, rowsize + XPadding, CV_8UC3, convertedImage->GetData(), convertedImage->GetStride()); // GetStride calculates an image stride, in bytes.
-
-					arenaP.undistort(cvimg);//Open top camera view window
-					// !! Seems like some of the libs are filed to open although window opened successfully, are they important?
-
-					if (arenaP.set_for_exp)
-					{
-						// was used for automatically finding the fly in the top camera image if the bottom camera lost track of the fly
-						// that part no longer works, but this function still includes code for showing the top camera view on the screen
-						// with timer and optogenetics information
-						arenaP.findFlyPos(encoderX, encoderY);
-					}
-					else
-					{
-						arenaP.showTopCamView();
-					}
-				}
-
-				// ends the loop when escape is pressed
-				//To test next sections, set:
-				//stream = false;
-				if (!stream)
-				{
-					break;
-				}
-				pResultImage->Release(); // release the image
-
-
-			}
-
-			pCam = nullptr; // The nullptr keyword represents a null pointer value, which indicate that an object handle, interior pointer, or native pointer type does not point to an object.
-            // Below are for Point Grey (Top)Camera
-            // Clear camera list before releasing system
-			camList.Clear();
-			// Release system
-			system->ReleaseInstance(); // how are Release() and ReleaseInstance() different:  Release() only releases one single camera, ReleaseInstance() can release current whole system, here the Spinneaker Systerm
-
-			// Note that the loop will continue until whole code finish, beacuse while() condition is always TRUE unless some errors happen.
-
-
-		}
 #pragma omp section
 		{
 			// CALIBRATING BOTTOM CAMERA
@@ -641,7 +498,6 @@ int main(int argc, char* argv[]) // argc: argument count, argv: argument vector
 			using namespace Basler_UsbCameraParams; // Basler USB4 Camera
 
 			int rest2 = 1000;
-			//int LEDState = 0; // LED Default State = OFF. Added by Sam on 10/18
 			motors.onLED = 0;// LED Default State = OFF
 
 			//////Setting For fly view camera (Basler. Pylon SDK)//////
@@ -685,7 +541,6 @@ int main(int argc, char* argv[]) // argc: argument count, argv: argument vector
 				// to GrabLoop_ProvidedByInstantCamera. The grab results are delivered to the image event handlers.
 				// The GrabStrategy_OneByOne default grab strategy is used.
 				camera.StartGrabbing(GrabStrategy_OneByOne, GrabLoop_ProvidedByInstantCamera); // start grabbing images from camera frame by frame
-				//(GrabStrategy_LatestImages);// (GrabStrategy_OneByOne);// (GrabStrategy_LatestImageOnly);
 
 				// The End-of-Text character (ETX) (hex value of 0x03) is an ASCII control character used to inform the receiving computer that the end of the data stream has been reached. 
 				unsigned char ucVal = 0x03; // unsigned char value 
@@ -752,8 +607,6 @@ int main(int argc, char* argv[]) // argc: argument count, argv: argument vector
 								dt = dTimeStamp / (48.0 * pow(10.0, 6.0)) * pow(10, 9); // Figure out the change in time (ns)
 								// 48.0 is the frequency. This calculates the change in time divided by 48.0*10^6*10*9 -> Output value = dTimeStamp * 2.0833e-17. Output unit = ns
 
-								//cout << xPos.getAbsPos(cbr[i].Count[0]) << "\t" << yPos.getAbsPos(cbr[i].Count[1]) << "\t" << dt << "\t" << lFIFOCount << endl;
-
 								// Calculate the absolute position of the encoders:
 								// Encoder structure should be established before main()
 								encoderX = xPos.getAbsPos(cbr[i].Count[0]); // Get the absolute position of the encoder on the X axis
@@ -767,10 +620,6 @@ int main(int argc, char* argv[]) // argc: argument count, argv: argument vector
 								// Press "5" key on numberpad to post X and Y encoder positions. - Added by Sam on 9/18
 								if (wnd.keyPressed(VK_NUMPAD5)) // the "4" key on the numberpad moves motor LEFT
 								{
-
-
-									//motors.StopX(); 
-									//motors.DriveLED();
 									cout << "encoder X: " << endl;
 									cout << encoderX << endl;
 									cout << "encoder Y: " << endl;
@@ -788,33 +637,18 @@ int main(int argc, char* argv[]) // argc: argument count, argv: argument vector
 
 									cout << "fvFrameSize:" << endl;
 									cout << fvFrameSize << endl;
-
-									//encoderDataInst.encoderX = encoderX; // saves encoderX and encoderY to this encoderDataInst structure
-									//encoderDataInst.encoderY = encoderY;
-
-									//arenaP.findFlyPos();
-									//cout << arenaP.findFlyPos() << endl; 
-									//cout << flyPos_encoder << endl;
-
-									//	cout << "distance X: " << endl;
-									//	cout << distance.x << endl;
-									//	cout << "distance Y: " << endl;
-									//	cout << distance.y << endl;
 								}
 
 								encoderDataInst.dt = dt; // saves the change in time
 								encoderDataInst.dataNum = ++encCnt; // Iteratively increase encoder count, starting from 0
 								encoderQ.push(encoderDataInst); // shares the information stored in encoderDataInst with encoderQ, a structure created on ~line 132
 
-								//cout << dt << endl;
 								if (dt > correctdt * 1.5 || dt < correctdt * 0.5) // If the change in time is within a corrected range then frames have been skipped. 
 								{
 									cout << "One or more encoder data skipped. Post-processing should take this into account or user should terminate this session" << endl;
-									//cout << dt << endl;
 								}
 								if (lFIFOCount > 1) // If the FIFO buffer is being used at all...
 								{
-									//cout << "Buffering " << lFIFOCount << " data. Minimize computer usage." << endl;
 									if (lFIFOCount == maxBufferSize) // If the FIFO buffer is full...
 									{
 										cout << "Skipped too many data. Terminating the session." << endl;
@@ -824,7 +658,6 @@ int main(int argc, char* argv[]) // argc: argument count, argv: argument vector
 								}
 								ulTimeStampPrev = ulTimeStamp; // sets the time stamp previous value to the currently stored one before moving on to the next iteration.
 							}
-							//USB4_ClearDigitalInputTriggerStatus(0);
 						}
 						// eStop is the pin #1 on the decoder/ USB4 --> eStop = LATCHING EMERGENCY STOP FOR THE 8 DIGITAL OUTPUTS
 						motors.eStopUpX = xPos.eStopUp; // Move the x axis motor's position UP (right)
@@ -833,35 +666,11 @@ int main(int argc, char* argv[]) // argc: argument count, argv: argument vector
 						motors.eStopDownY = yPos.eStopDown; // Move the y axis motor's position DOWN (down)
 					}
 
-					// Andrew: this is not currently set up to work
-					/// MOVE THE TOP CAMERA UP OR DOWN:
-					// MOVE THE TOP CAMERA STAGE DOWN:
-					//if (wnd.keyPressed(VK_NUMPAD3)) // when user clicks the '3' on the numberpad...
-					//{
-					//	ucVal = 0x03; // unsigned character value. 0x03; // MOSFET on for lowest 2 bits. 
-					//	USB4_WriteOutputPortRegister(0, ucVal); // sets the value stored in the output port register to 0x03 to the decoder. 
-					//	std::this_thread::sleep_for(std::chrono::microseconds(rest2)); // tell the encoder to rest for 1000 us
-					//	ucVal = 0x02; // 0x02 can be a Start-of-text control signal but I don't think that is being used here
-					//	USB4_WriteOutputPortRegister(0, ucVal); // sets the value stored in the output port register to 0x02 to the decoder.
-					//} 
-					// Sam commented this out on 9/10/2020 to stop the top cam from moving down when I accidentally press the "3" key, since moving gantry up is not perfect. 
-
-					// MOVE THE TOP CAMERA STAGE UP:
-					//if (wnd.keyPressed(VK_NUMPAD9)) // when user clicks the '9' on the numberpad
-					//{
-					//	ucVal = 0x01; // 0x01 = E - Stop active (these are the latched emergency stop state, according to the USB4 documentation)
-					//	USB4_WriteOutputPortRegister(0, ucVal); // Encoder events can also output on the output port to trigger external devices
-					//	std::this_thread::sleep_for(std::chrono::microseconds(rest2));
-					//	ucVal = 0x00; // 0x00 = E - Stop inactive
-					//	USB4_WriteOutputPortRegister(0, ucVal);
-					//}
-
 					// press escape to exit, and set stream to false to exit all other loops in other threads
 					if (wnd.keyPressed(VK_ESCAPE) || !stream)
 					{
 						motors.StopOptoLED();
 						motors.onLED = 0;
-						//LEDState = 0;
 						USB4_StopAcquisition(0); // stop acquisition of the decoder
 						stream = false; // stop stream from decoder
 						break; // break sequence
@@ -874,7 +683,6 @@ int main(int argc, char* argv[]) // argc: argument count, argv: argument vector
 				// Error handling.
 				cerr << "An exception occurred." << endl
 					<< e.GetDescription() << endl;
-				//exitCode = 1;
 			}
 			//Below are for Basler Camera
 			PylonTerminate(); // terminate access to bottom camera
@@ -907,9 +715,6 @@ int main(int argc, char* argv[]) // argc: argument count, argv: argument vector
 			time_t timeResult = time(NULL);
 			char timeStr[26];
 
-			// Set the calibration class for the mapping of the top camera pixels to encoder coordinates
-			Calibration calib(arenaP, wnd);
-
 			// Load the YOLO parameter files and set the vector for holding the detections on each loop
 			const string yolo_obj_file = "C:\\darknet\\flyHeadYolov4.cfg";
 			const string yolo_weights_file = "C:\\darknet\\flyHead_final.weights";
@@ -933,13 +738,7 @@ int main(int argc, char* argv[]) // argc: argument count, argv: argument vector
 
 			while (TRUE)
 			{
-				// calibrate top camera when pressing C
-				if (wnd.keyPressed(0x43))
-				{
-					calib.startCalibratingTopCam();
-				}
 				// get images and struct from concurrent queue from other thread
-				//if (!flyViewQ.empty() && !encoderQ.empty()) // If the flyView queue and the encoder queue are NOT empty...
 				if (!flyViewQ.empty() && !encoderQ.empty())
 				{
 					flyViewQ.try_pop(chunkStruc); // dequeue the chunkStruc for parallel processing
@@ -1021,9 +820,22 @@ int main(int argc, char* argv[]) // argc: argument count, argv: argument vector
 								x = flyVec.x * (y - headComPt.y) / flyVec.y + headComPt.x;
 							}
 							antPt = Point(x, y);
+							
+							// Update global pixel position variables for light beam thread
+							flyBodyPixelPos = comPt;
+							flyHeadPixelPos = headComPt;
+							flyDetectedInFrame = true;
 						}
-						else
-						{
+						
+						// Print fly pixel coordinates to console every 480 frames (~1 second at 480 Hz)
+						if (streamCounter % 480 == 0 && couldBeFlySize) {
+							cout << "Fly Body Center: (" << comPt.x << ", " << comPt.y << ") pixels | "
+								 << "Head Center: (" << headComPt.x << ", " << headComPt.y << ") pixels" << endl;
+						}
+					}
+					else
+					{
+						flyDetectedInFrame = false; // No fly detected in this YOLO detection cycle
 							p = Point(0, 0);
 							couldBeFlySize = false;
 						}
@@ -1080,10 +892,6 @@ int main(int argc, char* argv[]) // argc: argument count, argv: argument vector
 							arenaP.bottomCamRecentFlyPos.x = bottomCamRecentFlyPos.x; // store the bottom cameras position anyway
 							arenaP.bottomCamRecentFlyPos.y = bottomCamRecentFlyPos.y;
 
-							// Instead of setting bottomCamRecentFlyPos, why not have the pos set to user-designated position?
-
-							//cout << "Bot Cam did NOT find a fly..." << endl; // Displays if bot cam failed to find a fly. 
-						}
 
 
 
@@ -1147,11 +955,6 @@ int main(int argc, char* argv[]) // argc: argument count, argv: argument vector
 
 
 					}
-					//if (wnd.keyPressed(0x61)) // 0x53 is ASCII for: "a"
-					//{
-					//	int sumPixel = sum(dst)[0];
-					//	cout << sumPixel << endl;
-					//}
 
 					/// TOGGLE WHETHER THE CURRENTLY VIEWED DATA IS SAVED OR NOT WITH THE "S" KEY:
 					if (wnd.keyPressed(0x53)) // 0x53 is ASCII for: "S"
@@ -1225,10 +1028,37 @@ int main(int argc, char* argv[]) // argc: argument count, argv: argument vector
 						const Mat cvimgWithBoundingBox(cvimg.clone());
 						if (couldBeFlySize)
 						{
-							/*rectangle(cvimgWithBoundingBox, pt1, pt2, { 255,255,255 });
-							rectangle(cvimgWithBoundingBox, pt3, pt4, { 255,255,255 });*/
+							// Draw bounding boxes for body and head
+							rectangle(cvimgWithBoundingBox, pt1, pt2, { 255,255,255 }, 2);
+							rectangle(cvimgWithBoundingBox, pt3, pt4, { 200,200,200 }, 1);
+							
+							// Draw center point markers
+							circle(cvimgWithBoundingBox, comPt, 3, { 255,255,255 }, -1); // Body center
+							circle(cvimgWithBoundingBox, headComPt, 2, { 200,200,200 }, -1); // Head center
 							circle(cvimgWithBoundingBox, antPt, 5, { 255,255,255 });
+							
+							// Draw pixel coordinate text for body center
+							stringstream bodyCoordText;
+							bodyCoordText << "Body: (" << comPt.x << ", " << comPt.y << ")";
+							putText(cvimgWithBoundingBox, bodyCoordText.str(), 
+									Point(10, 20), FONT_HERSHEY_SIMPLEX, 0.5, Scalar(255), 1);
+							
+							// Draw pixel coordinate text for head center
+							stringstream headCoordText;
+							headCoordText << "Head: (" << headComPt.x << ", " << headComPt.y << ")";
+							putText(cvimgWithBoundingBox, headCoordText.str(), 
+									Point(10, 40), FONT_HERSHEY_SIMPLEX, 0.5, Scalar(200), 1);
+									
+							// Draw crosshair at body center for better visibility
+							line(cvimgWithBoundingBox, Point(comPt.x - 10, comPt.y), Point(comPt.x + 10, comPt.y), { 255,255,255 }, 1);
+							line(cvimgWithBoundingBox, Point(comPt.x, comPt.y - 10), Point(comPt.x, comPt.y + 10), { 255,255,255 }, 1);
 
+						}
+						else
+						{
+							// Show "No Fly Detected" message when fly is not found
+							putText(cvimgWithBoundingBox, "No Fly Detected", 
+									Point(10, 20), FONT_HERSHEY_SIMPLEX, 0.5, Scalar(128), 1);
 						}
 						flyStreamRaw.push(cvimgWithBoundingBox);
 					}
@@ -1244,147 +1074,6 @@ int main(int argc, char* argv[]) // argc: argument count, argv: argument vector
 					{
 						const Point2f calibrationSquareEncoderLocation((float)encoderDataInst.encoderX + distance.x, (float)encoderDataInst.encoderY + distance.y);
 						calib.calibrateCamera(calibrationSquareEncoderLocation);
-
-						//	// Click "1" when the camera has reached the 1st plate:
-						//	if (!arenaP.calib_marker_saved[0]) //  if the 1 key is pressed and the first arena calibration mark is not saved...
-						//	{
-						//	//	encoderDataInst.encoderX = encoderX; // Added by Sam on 10/1 for testing purposes
-						//	//	encoderDataInst.encoderY = encoderY;
-
-						//	//	//arenaP.calib_markers_encoder[0].x = encoderDataInst.encoderX + distance.x; // Original. set the x and y positions for the encoder that correspond to the first plate point
-						//	//	arenaP.calib_markers_encoder[0].x = encoderDataInst.encoderX - distance.x; // Added by Sam on 9/29 for testing purposes
-						//	//	arenaP.calib_markers_encoder[0].y = encoderDataInst.encoderY + distance.y; //
-						//	//	arenaP.calib_marker_saved[0] = true;
-						//	//	cout << "Got the world (encoder) coordinate of Point 1." << endl;
-						//	//	cout << arenaP.calib_markers_encoder[0] << endl; // Added by Sam on 9/30 for testing purposes.
-
-						//	//	//cout << "X: " << endl;
-						//	//	//cout << arenaP.calib_markers_encoder[0].x << endl;
-						//	//	//cout << "Y: " << endl;
-						//	//	//cout << arenaP.calib_markers_encoder[0].y << endl;
-
-						//	//cout << "distance: " << endl;
-						//	//cout << distance << endl;
-						//	//
-						//	//cout << "encoderDataInst.encoderX: " << endl;
-						//	//cout << encoderDataInst.encoderX << endl;
-						//	//cout << "encoderDataInst.encoderY: " << endl;
-						//	//cout << encoderDataInst.encoderY << endl;
-
-						//	//cout << "encoder X: " << endl;
-						//	//cout << encoderX << endl;
-						//	//cout << "encoder Y: " << endl;
-						//	//cout << encoderY << endl;
-
-						//	//automatic calibration
-						//	arenaP.calib_markers_encoder[0].x = 238205;
-						//	arenaP.calib_markers_encoder[0].y = 86234;
-						//	arenaP.calib_marker_saved[0] = true;
-						//	cout << arenaP.calib_markers_encoder[0] << endl;
-						//	}
-						//	// Click "2" when the camera has reached the 2nd plate:
-						//	if (!arenaP.calib_marker_saved[1]) // Cycle through the 2nd and 3rd plates and get their positions by leading the bottom camera to it
-						//																				 // then pressing "2" to calibrate it
-						//	{
-						//		//encoderDataInst.encoderX = encoderX; // Added by Sam on 10/1 for testing purposes
-						//		//encoderDataInst.encoderY = encoderY;
-
-						//		////arenaP.calib_markers_encoder[1].x = encoderDataInst.encoderX + distance.x; // Original
-						//		//arenaP.calib_markers_encoder[1].x = encoderDataInst.encoderX - distance.x; // Added by Sam on 9/29 for testing purposes
-						//		//arenaP.calib_markers_encoder[1].y = encoderDataInst.encoderY + distance.y;
-						//		//arenaP.calib_marker_saved[1] = true;
-						//		//cout << "Got the world (encoder) coordinate of Point 2." << endl;
-						//		//cout << arenaP.calib_markers_encoder[1] << endl; // Added by Sam on 9/30 for testing purposes.
-
-
-						//		//cout << "distance: " << endl;
-						//		//cout << distance << endl;
-
-						//		//cout << "encoderDataInst.encoderX: " << endl;
-						//		//cout << encoderDataInst.encoderX << endl;
-						//		//cout << "encoderDataInst.encoderY: " << endl;
-						//		//cout << encoderDataInst.encoderY << endl;
-
-						//		//cout << "encoder X: " << endl;
-						//		//cout << encoderX << endl;
-						//		//cout << "encoder Y: " << endl;
-						//		//cout << encoderY << endl;
-
-
-						//		////cout << "X: " << endl;
-						//		////cout << arenaP.calib_markers_encoder[1].x << endl;
-						//		////cout << "Y: " << endl;
-						//		////cout << arenaP.calib_markers_encoder[1].y << endl;
-
-						//	//	cout << "distance X: " << endl;
-						//	//	cout << distance.x << endl;
-						//	//	cout << "distance Y: " << endl;
-						//	//	cout << distance.y << endl;
-						//	//automatic calibration
-						//	arenaP.calib_markers_encoder[1].x = 159585;
-						//	arenaP.calib_markers_encoder[1].y = 241237;
-						//	arenaP.calib_marker_saved[1] = true;
-						//	cout << arenaP.calib_markers_encoder[1] << endl;
-						//	}
-						//	// Click "3" when the camera has reached the 3rd plate:
-						//	if (!arenaP.calib_marker_saved[2]) // Calibrate the 3rd plate position
-						//	{
-						//		//encoderDataInst.encoderX = encoderX; // Added by Sam on 10/1 for testing purposes
-						//		//encoderDataInst.encoderY = encoderY;
-
-						//		////arenaP.calib_markers_encoder[2].x = encoderDataInst.encoderX + distance.x; // Original
-						//		//arenaP.calib_markers_encoder[2].x = encoderDataInst.encoderX - distance.x; // Added by Sam on 9/29 for testing purposes
-						//		//arenaP.calib_markers_encoder[2].y = encoderDataInst.encoderY + distance.y;
-						//		//arenaP.calib_marker_saved[2] = true;
-						//		//cout << "Got the world (encoder) coordinate of Point 3." << endl;
-						//		//cout << arenaP.calib_markers_encoder[2] << endl; // Added by Sam on 9/30 for testing purposes.
-
-						//		//cout << "distance: " << endl;
-						//		//cout << distance << endl;
-
-						//		//cout << "encoderDataInst.encoderX: " << endl;
-						//		//cout << encoderDataInst.encoderX << endl;
-						//		//cout << "encoderDataInst.encoderY: " << endl;
-						//		//cout << encoderDataInst.encoderY << endl;
-
-						//		//cout << "encoder X: " << endl;
-						//		//cout << encoderX << endl;
-						//		//cout << "encoder Y: " << endl;
-						//		//cout << encoderY << endl;
-
-						//		////cout << "X: " << endl;
-						//		////cout << arenaP.calib_markers_encoder[2].x << endl;
-						//		////cout << "Y: " << endl;
-						//		////cout << arenaP.calib_markers_encoder[2].y << endl;
-
-						//	//	cout << "distance X: " << endl;
-						//	//	cout << distance.x << endl;
-						//	//	cout << "distance Y: " << endl;
-						//	//	cout << distance.y << endl;
-						//		//automatic calibration
-						//	arenaP.calib_markers_encoder[2].x = 263650;
-						//	arenaP.calib_markers_encoder[2].y = 261532;
-						//	arenaP.calib_marker_saved[2] = true;
-						//	cout << arenaP.calib_markers_encoder[2] << endl;
-						//	}
-						//}
-						//// Press "5" key on numberpad to post X and Y encoder positions. - Added by Sam on 9/18
-						////if (wnd.keyPressed(VK_NUMPAD5)) // the "4" key on the numberpad moves motor LEFT
-						////{
-						////	cout << "encoder X: " << endl;
-						////	cout << encoderDataInst.encoderX << endl;
-						////	cout << "encoder Y: " << endl;
-						////	cout << encoderDataInst.encoderY << endl;
-
-						////	cout << "distance X: " << endl;
-						////	cout << distance.x << endl;
-						////	cout << "distance Y: " << endl;
-						////	cout << distance.y << endl;
-						////}
-
-
-
-
 					}
 				}
 				if (!stream) // If the stream is off
@@ -1400,11 +1089,6 @@ int main(int argc, char* argv[]) // argc: argument count, argv: argument vector
 			// DRIVING THE MOTORS(MANNULLY CONTROL)
 			BOOL manualControl = TRUE; // Has manual control been set?
 			int manualState = 0; // set the state for manual control to 0
-
-			//Point2f wallCond_dist(0, 0); // Added by Sam on 10/26 to store est_dist corrected values. 
-			//Point2f wallCond_vel(0, 0); // Added by Sam on 10/26 to store est_dist corrected values. 
-			//Point2f arenaCenter(0, 0); // Added by Sam on 10/26 to store est_dist corrected values. 
-			//Point2f frameCenter(0, 0); // Added by Sam on 10/26 to store est_dist corrected values. 
 
 			// Loop is constantly running using data being set in other threads
 			while (true) {
@@ -1451,89 +1135,44 @@ int main(int argc, char* argv[]) // argc: argument count, argv: argument vector
 				// IF THE BOTTOM CAMERA IS SET TO AUTOMATIC:
 				if (!manualControl)
 				{
-
-						// code for stopping the camera from leaving the arena
-						//if (encoderLeavingArena)
-						//{
-						//	const long long future_encoderXOnlyDistSquared = (future_encoderXDist + (long long)encoderY) * (future_encoderXDist + (long long)encoderY);
-						//	const long long future_encoderYOnlyDistSquared = ((long long)encoderX + future_encoderYDist) * ((long long)encoderX + future_encoderYDist);
-						//	if (future_encoderXOnlyDistSquared > arenaP.arena_radius_squared)
-						//	{
-						//		est_dist.x = 0;
-						//	}
-						//	if (future_encoderYOnlyDistSquared > arenaP.arena_radius_squared)
-						//	{
-						//		est_dist.y = 0;
-						//	}
-
-						//}
-						// Andrew: not sure what this is for, maybe for a previous process we don't do anymore
-					if (!arenaP.set_for_exp) 
+					// Simplified control: always use bottom camera with YOLO tracking
+					if (arenaP.set_for_exp)
 					{
-						//This is before we start the experiement. We want to use the fake target, so we do not want allowBottomCamToGo permission. allowBottomCamToGo permission is only used when experiment is on going.
-						motors.SetDirAndFreq(est_dist, est_vel, true, false);
-					}
-					else
-							// runs if the top camera image is clicked to move the camera to the clicked point
-							// fly position estimated in arenaP class in topCamProc.cpp
-					{
-						//cout << "Allow Bottom Cam To Go: "<< arenaP.allowBottomCamToGo << "\t" << "Bottom Cam Fly Found " << bottomCamFlyFound << endl;
-						//---Control criteria after experiment started---//
-						if (arenaP.topCamFlyFound) 
-						{
-							Point2f controlIn;
-							Point2f controlInVel(0.0f, 0.0f);
-							controlIn.x = (arenaP.flyPos_encoder.x - encoderX) / objectSpaceResolution;
-							controlIn.y = (arenaP.flyPos_encoder.y - encoderY) / objectSpaceResolution;
-							motors.SetDirAndFreq(controlIn, controlInVel, true, true); // if its automatic tracking and encoder-based
-							if (norm(controlIn) < 30) 
-							{
-								arenaP.allowBottomCamToGo = true;
-								arenaP.topCamFlyFound = false;
-								//cout << "norm(controlIn) < 30" << endl;
-							}
-							if (firstCalling2) 
-							{
-								cout << "top cam in charge" << endl;
-								firstCalling1 = true;
-								firstCalling2 = false;
-								firstCalling3 = true;
-							}
-						}
-						// code for automatically following the fly
-						else if (bottomCamFlyFound && arenaP.allowBottomCamToGo) 
+						// Automatic tracking of fly detected by YOLO
+						if (bottomCamFlyFound && arenaP.allowBottomCamToGo)
 						{
 							// sleep call added after upgrading to a new computer caused loop to run faster and camera to become shakier
 							Sleep(10);
 							motors.SetDirAndFreq(est_dist, est_vel, true, false);
 
-							if (firstCalling1) 
+							if (firstCalling1)
 							{
-								cout << "bottom cam in charge" << endl;
+								cout << "bottom cam tracking fly" << endl;
 								firstCalling1 = false;
-								firstCalling2 = true;
 								firstCalling3 = true;
 							}
-
 						}
-
 						else
-							// stop the camera if fly is not found in the frame and nowhere in the top camera image is clicked
 						{
-							if (firstCalling3) {
-								cout << "nobody in charge" << endl;
+							// Stop the camera if fly is not found in the frame
+							if (firstCalling3)
+							{
+								cout << "fly not detected - camera stopped" << endl;
 								firstCalling1 = true;
-								firstCalling2 = true;
 								firstCalling3 = false;
 								motors.SetDirAndFreq(Point2f(0, 0), Point2f(0, 0), true, false);
 							}
 						}
 					}
+					else
+					{
+						// Before experiment starts, allow manual positioning
+						motors.SetDirAndFreq(est_dist, est_vel, true, false);
+					}
 				}
 				else // if MANUAL control is ON:
 				{
 					arenaP.allowBottomCamToGo = true;
-					arenaP.topCamFlyFound = false;
 					/// MOVING THE BOTTOM CAMERA MANUALLY WITH ARROW KEYS
 
 						// MOVE BOT CAMERA UP/ FORWARD/ NORTH WITH UP KEY:
@@ -1568,8 +1207,6 @@ int main(int argc, char* argv[]) // argc: argument count, argv: argument vector
 					// THIS MOVEMENT IS NOT BASED ON INFORMATION FROM THE ENCODER (INDICATED BY THE 2ND "false"). THIS MEANS WE ARE MANUALLY CONTROLLING THE POSITION OF THE BOT CAMERA
 					// AND THE PROPORTIONAL CONTROL IS NOT BEING USED. INSTEAD, A VIRTUAL DISTANCE AND VELOCITY ARE SET WHEN THE KEY IS PRESSED AND THOSE MOTIONS ARE INITIATED.
 					motors.SetDirAndFreq(virtualDist, virtualVel, false, false); // Command motor to move based on virtual distance and virtual velocity while bot camera is under MANUAL control.
-					//cout << virtualVel << endl;
-					//motors.SetDirAndFreq(virtualDist, virtualVel, false, true); //
 					// motors.SetDirAndFreq appears to be defined in gantry.cpp
 					// line 81 of gantry.cpp: Gantry::SetDirAndFreq(cv::Point2f pt, cv::Point2f vel, bool automatic, bool encoder_based)
 					// At the end of SetDirAndFreq, values for DAQmxSetChanAttribute are set. 
@@ -1589,9 +1226,10 @@ int main(int argc, char* argv[]) // argc: argument count, argv: argument vector
 			// USE PARALLEL PROCESSING TO VIEW 1 ms OF A FRAME OF FLY DATA FROM THE BOTTOM CAMERA:
 			// Thread for driving the motors "try_pop" TO REMOVE FRAMES FROM A STREAM AND DISPLAY THEM FOR 1 millisecond. 
 
-			Mat tframe, t2frame, t2frameRaw;
+			Mat tframe, t2frame, t2frameRaw, sideCamFrame;
 			bool firstFrameT2Frame = true;
 			bool firstFrameT2FrameRaw = true;
+			bool firstFrameSideCam = true;
 			while (true)
 			{
 				//try_pop provides a way of removing something from the queue in order to allow for parallel processing of certain things.
@@ -1600,29 +1238,9 @@ int main(int argc, char* argv[]) // argc: argument count, argv: argument vector
 				{
 					// showing top camera frame is now done in arenaP class
 					// do some action on tframe 
-
-					/*
-					imshow("arena image", tframe);
-					//namedWindow("current Image", WINDOW_NORMAL);
-					//resizeWindow("current Image", tframe.rows / 2, tframe.cols / 2);
-					*/
 				}
 
 				// old code for showing binarized image that is used for finding the fly after processing
-				//			if (flyMaskStream.try_dequeue(tmask))
-					//			imshow("fly mask", tmask);
-				//if (flyStream.try_pop(t2frame)) // If t2frame is dequeued from the stream...
-				//{
-				//	if (firstFrameT2Frame)
-				//	{
-				//		wnd.newCVWindow("fly image");
-				//		firstFrameT2Frame = false;
-				//		cv::setMouseCallback("fly image", mouseCallbackFcn, NULL);
-				//	}
-				//	imshow("fly image", t2frame); // show an image of the fly
-				//}
-
-				//waitKey(1); // display the image for 1 millisecond
 
 				if (flyStreamRaw.try_pop(t2frameRaw)) // If the t2frameRaw is dequeud from the stream...
 				{
@@ -1635,13 +1253,25 @@ int main(int argc, char* argv[]) // argc: argument count, argv: argument vector
 					imshow("fly image raw", t2frameRaw); // show a raw image of the fly for 1 millisecond
 				}
 
+				// Display side camera stream
+				if (sideCamStream.try_pop(sideCamFrame))
+				{
+					if (firstFrameSideCam)
+					{
+						wnd.newCVWindow("side camera");
+						firstFrameSideCam = false;
+					}
+					imshow("side camera", sideCamFrame);
+				}
+
 				waitKey(1); // display the image for 1 millisecond
 
 				if (!stream) // If there is no stream...
 				{
-					// close the two generated windows
+					// close the generated windows
 					destroyWindow("fly image");
 					destroyWindow("fly image raw");
+					destroyWindow("side camera");
 					break; // break the sequence
 				}
 
@@ -1720,8 +1350,6 @@ int main(int argc, char* argv[]) // argc: argument count, argv: argument vector
 					/// WRITE THE DATA STORED IN fvStruc TO THE OUTPUT TEXT FILE:
 					//wtextFile << fvStruc.dataNum << "\t" << fvStruc.camTime << "\t" << fvStruc.frameCoMX << "\t" << fvStruc.frameCoMY << "\t" << fvStruc.grabSucceeded << "\t" << fvStruc.imageDamaged << "\t" << fvStruc.decoderdt << "\t" << fvStruc.encoderX << "\t" << fvStruc.encoderY << "\t" << fvStruc.absCoMX << "\t" << fvStruc.absCoMY << "\t" << fvStruc.bottomCamSeesFly << "\n";
 					wtextFile << fvStruc.dataNum << "\t" << fvStruc.camTime << "\t" << fvStruc.frameCoMX << "\t" << fvStruc.frameCoMY << "\t" << fvStruc.grabSucceeded << "\t" << fvStruc.imageDamaged << "\t" << fvStruc.decoderdt << "\t" << fvStruc.encoderX << "\t" << fvStruc.encoderY << "\t" << fvStruc.absCoMX << "\t" << fvStruc.absCoMY << "\t" << fvStruc.bottomCamSeesFly << "\t" << fvStruc.manualOrAuto << "\t" << fvStruc.onLED << "\t" << fvStruc.center[0] << "\t" << fvStruc.center[1] << "\t" << fvStruc.bottomCamInCharge << "\t" << fvStruc.clockTime << "\t" << 0 << "\t" << fvStruc.stimulusVoltage << "\n"; // Added LEDState
-					//wtextFile << fvStruc.dataNum << "\t" << fvStruc.camTime << "\t" << fvStruc.frameCoMX << "\t" << fvStruc.frameCoMY << "\t" << fvStruc.grabSucceeded << "\t" << fvStruc.imageDamaged << "\t" << fvStruc.decoderdt << "\t" << fvStruc.encoderX << "\t" << fvStruc.encoderY << "\t" << fvStruc.absCoMX << "\t" << fvStruc.absCoMY << "\t" << fvStruc.bottomCamSeesFly << "\t" << motors.onLED << "\t" << motors.manualOrAuto << "\n"; // Added LEDState
-					//cout << fvStruc.encoderX << endl;
 
 					//CoM saved in pixel, time saved in nanoseconds, encoder positions + abs positions in micrometers
 					//camTime: (ns)
@@ -1731,9 +1359,6 @@ int main(int argc, char* argv[]) // argc: argument count, argv: argument vector
 					//decoderdt: (ns) ...i think
 					//encoderX, Y, absCoMX, Y: (um micrometer)
 					//
-
-					//BinarySaveData binarySaveData(fvStruc);
-					//dataFile.write(reinterpret_cast<char*>(&binarySaveData), sizeof(binarySaveData));
 
 					// add all data to the vectors defined in matSaveData
 					matSaveData.addFrameData(fvStruc);
@@ -1746,8 +1371,79 @@ int main(int argc, char* argv[]) // argc: argument count, argv: argument vector
 			}
 			wtextFile.close(); // if the "while(true)" statement from above is false, then close the output text file.
 			writer.release();
-			//dataFile.close();
 
+		}
+#pragma omp section
+		{
+			// SIDE CAMERA SECTION
+			// Captures video from the side-mounted Basler camera
+			using namespace Pylon;
+			using namespace GenApi;
+			using namespace Basler_UsbCameraParams;
+
+			PylonInitialize();
+			try
+			{
+				// Create device info object to find the side camera
+				// Assumes side camera is the second USB camera detected
+				CDeviceInfo info;
+				info.SetDeviceClass(BaslerUsbDeviceClass);
+				
+				DeviceInfoList_t devices;
+				CTlFactory& tlFactory = CTlFactory::GetInstance();
+				
+				if (tlFactory.EnumerateDevices(devices) >= 2)
+				{
+					// Use the second camera as side camera
+					CBaslerUsbInstantCamera sideCamera(tlFactory.CreateDevice(devices[1]));
+					cout << "Side Camera Using device " << sideCamera.GetDeviceInfo().GetModelName() << endl;
+					
+					// Register configuration and image event handler
+					sideCamera.RegisterConfiguration(new CHardwareTriggerConfiguration, RegistrationMode_ReplaceAll, Cleanup_Delete);
+					sideCamera.RegisterImageEventHandler(new CImageEventPrinterSide, RegistrationMode_Append, Cleanup_Delete);
+					
+					sideCamera.Open();
+					
+					// Configure side camera parameters - adjust as needed for side view
+					sideCamera.ExposureTime.SetValue(1000.0);
+					sideCamera.SensorReadoutMode.SetValue(SensorReadoutMode_Fast);
+					sideCamera.Width.SetValue(800);  // Full width for side view
+					sideCamera.Height.SetValue(600);
+					sideCamera.OffsetX.SetValue(0);
+					sideCamera.OffsetY.SetValue(0);
+					
+					sideCamera.ChunkModeActive.SetValue(true);
+					sideCamera.ChunkSelector.SetValue(ChunkSelector_Timestamp);
+					sideCamera.ChunkEnable.SetValue(true);
+					sideCamera.ChunkSelector.SetValue(ChunkSelector_PayloadCRC16);
+					sideCamera.ChunkEnable.SetValue(true);
+					sideCamera.MaxNumBuffer = 500;
+					
+					// Start grabbing
+					sideCamera.StartGrabbing(GrabStrategy_OneByOne, GrabLoop_ProvidedByInstantCamera);
+					
+					cout << "Side camera initialized and grabbing..." << endl;
+					
+					// Keep thread alive while grabbing
+					while (stream)
+					{
+						Sleep(100);
+					}
+					
+					sideCamera.StopGrabbing();
+					sideCamera.Close();
+				}
+				else
+				{
+					cout << "Warning: Could not find second camera for side view. Only " << devices.size() << " camera(s) detected." << endl;
+				}
+			}
+			catch (const GenericException& e)
+			{
+				cerr << "Side Camera Exception: " << endl << e.GetDescription() << endl;
+			}
+			
+			PylonTerminate();
 		}
 	}
 		
