@@ -419,7 +419,6 @@ int main(int argc, char* argv[]) // argc: argument count, argv: argument vector
 	}
 
 
-
 	// Caution! The reset of the example is implemented without any error checking.
 
 	// USB4 is the DECODER that interprets the encoder's quadrature signal
@@ -484,22 +483,10 @@ int main(int argc, char* argv[]) // argc: argument count, argv: argument vector
 	//Note that there are 8 channels, and both 2 lines need to be set up as TRUE for one specific channel(usually 1st),
 	//otherwise this channel will not sensitive to the rising signal.
 
-	Gantry motors; // A class that uses "motors" to drive the movement of the motors
+	Gantry motors("COM4"); // A class that uses "motors" to drive the movement of the motors
 	const double frequency = FREQ;
-	motors.configure(frequency);
+	motors.configure();
 
-
-
-	// How to introduce stim stimulus? GantryConfig will be found under C:/user/<your username> file, to make sure this test code can work, add the test GantryConfig.txt there
-	// Note that original GantryConfig.txt is used to run current flygantrycodeV2, don't forget to remove the text config file when finish this code test 
-	// Optogenetic Stimulation class
-	OptoStim optoStim(motors, frequency, wnd, config);
-	// Class for handling the top camera, its video images, and its data related to the arena dimensions
-	ArenaProc arenaP(optoStim, wnd);
-	// Loads camera calibration coefficients. This should be left alone unless a new camera is used.
-	arenaP.loadCameraCalibration("C:\\Program Files\\Gantry\\Calibration\\coeffs_roi"); // 19 coeffs in this file, 14 will be shown 
-	// arenaP and ArenaProc refer to arena proportional control, which changes the speed of the motor controlling the camera in a manner proportional to the distance from the center of the fly.
-	// ArenaProc is from <topCamProc.h>
 
 	int prev_rest = 1000; // prev_rest is only mentioned in this line. Does it do anything?
 	Size fvFrameSize(592, 600); // sets frame size as 592x600 as the image resolution
@@ -520,12 +507,6 @@ int main(int argc, char* argv[]) // argc: argument count, argv: argument vector
 	cout << "	(2) Toggle between top and bottom cameras" << endl;
 	cout << "	(3) Parallel run of top and bottom cameras" << endl;
 	//	cin >> option;
-
-	// Turn on illuminating LED
-	motors.DriveIlluminatingLED();
-
-
-
 
 	//----- Build 6 Parallel Sections----//
 	// Six sections: CALIBRATING TOP CAMERA, CALIBRATING BOTTOM CAMERA, Fly tracking with yolo, Driving the motors(Controling part), Disply bottom view, Save Data
@@ -694,144 +675,127 @@ int main(int argc, char* argv[]) // argc: argument count, argv: argument vector
 				//Catpure Frames and Get positions//
 				while (TRUE)
 				{
-					// CHECKS IF EITHER THE X OR Y ENCODERS ARE CALIBRATED:
-					if (!xPos.calibrated || !yPos.calibrated) //If the X encoder or Y encoder are not calibrated...
+					if (!xPos.setForAcquisition || !yPos.setForAcquisition) //If the X and Y encoder positions are not set for acquisition
 					{
-						USB4_ReadOutputLatch(0, 0, &ulLatchx); // read the latch position of the x axis
-						USB4_ReadOutputLatch(0, 1, &ulLatchy); // read the latch position of the y axis
-						xPos.feedInLCnt(ulLatchx); // Feed in latch count for the x position
-						yPos.feedInLCnt(ulLatchy); // Feed in latch count for the y position
-						USB4_ClearCapturedStatus(0, 0); // clear the captured state for the x axis
-						USB4_ClearCapturedStatus(0, 1); // clear the captured state for the y axis
+						cout << "XY Calibrated. Setting up for acquisition" << endl;
+						// The encoders are ready to pass 2 index values to determine their absolute positions along the linear actuator:
+						// USB4_SetTriggerOnIndex(decoder index position, encoder index position, boolean);
+						USB4_SetTriggerOnIndex(0, 0, FALSE); // 
+						USB4_SetTriggerOnIndex(0, 1, FALSE); // The encoder is calibrated now so the absolute position is known.
+
+						// Clear the FIFO buffer
+						USB4_ClearFIFOBuffer(0); // Clear out previous, unrelated information
+						USB4_ResetTimeStamp(0); // set the time stamp for acquiring frames to 0
+
+						motors.startDataAcquisition(); // start acquiring data
+
+						xPos.setForAcquisition = true; // set the state of the x and y axis as ready for acquiring data.
+						yPos.setForAcquisition = true;
+						arenaP.set_for_exp = true;
+						arenaP.setFlyMouseCallbackFunc(&arenaP);
+						arenaP.getTransformationMatrix();
 					}
-					else // If the position for the calibrated X or Y encoders are not set or is good
+					else // otherwise start acquiring positional and time information for the encoders and store that information in the constant-bit rate FIFO buffer structure:
 					{
-						if (!xPos.setForAcquisition || !yPos.setForAcquisition) //If the X and Y encoder positions are not set for acquisition
+						lFIFOCount = DECODER_BUFFER_MAX; // the long First-In, First-out count is set to the max decoder buffer value, 10,000.
+						USB4_ReadFIFOBufferStruct(0, &lFIFOCount, &cbr[0], 1000); // Read how the FIFO buffer's structure is setup. 
+						// the "1000" refers to the unsigned long time readout, which makes sense given 1000 is the sampling rate.
+
+						// loop through the buffer and iteratively add time stamps to it
+						for (int i = 0; i < lFIFOCount; i++) 
 						{
-							cout << "XY Calibrated. Setting up for acquisition" << endl;
-							// The encoders are ready to pass 2 index values to determine their absolute positions along the linear actuator:
-							// USB4_SetTriggerOnIndex(decoder index position, encoder index position, boolean);
-							USB4_SetTriggerOnIndex(0, 0, FALSE); // 
-							USB4_SetTriggerOnIndex(0, 1, FALSE); // The encoder is calibrated now so the absolute position is known.
+							ulTimeStamp = cbr[i].Time; // CBR stands for constant bit rate, aims for a constant or unvarying bandwidth level with video quality allowed to vary. 
 
-							// Clear the FIFO buffer
-							USB4_ClearFIFOBuffer(0); // Clear out previous, unrelated information
-							USB4_ResetTimeStamp(0); // set the time stamp for acquiring frames to 0
-
-							motors.startDataAcquisition(); // start acquiring data
-
-							xPos.setForAcquisition = true; // set the state of the x and y axis as ready for acquiring data.
-							yPos.setForAcquisition = true;
-							arenaP.set_for_exp = true;
-							arenaP.setFlyMouseCallbackFunc(&arenaP);
-							arenaP.getTransformationMatrix();
-						}
-						else // otherwise start acquiring positional and time information for the encoders and store that information in the constant-bit rate FIFO buffer structure:
-						{
-							lFIFOCount = DECODER_BUFFER_MAX; // the long First-In, First-out count is set to the max decoder buffer value, 10,000.
-							USB4_ReadFIFOBufferStruct(0, &lFIFOCount, &cbr[0], 1000); // Read how the FIFO buffer's structure is setup. 
-							// the "1000" refers to the unsigned long time readout, which makes sense given 1000 is the sampling rate.
-
-							// loop through the buffer and iteratively add time stamps to it
-							for (int i = 0; i < lFIFOCount; i++) 
+							if (ulTimeStamp < ulTimeStampPrev) // If the time stamp value is less than the previous one...
 							{
-								ulTimeStamp = cbr[i].Time; // CBR stands for constant bit rate, aims for a constant or unvarying bandwidth level with video quality allowed to vary. 
-
-								if (ulTimeStamp < ulTimeStampPrev) // If the time stamp value is less than the previous one...
-								{
-									dTimeStamp = numeric_limits<unsigned long int>::max() - ulTimeStampPrev + ulTimeStamp; // subract the sum of the previous and
-									
-									// current timestamp data from the max time stamp data acquired
-                                    //cout << "rare" << endl;
-								}
-								else // otherwise if the current time stamp is equal to or greater than the previous time stamp...
-								{
-									dTimeStamp = ulTimeStamp - ulTimeStampPrev; // create a new timestamp based on the difference between them
-								}
-
-								dt = dTimeStamp / (48.0 * pow(10.0, 6.0)) * pow(10, 9); // Figure out the change in time (ns)
-								// 48.0 is the frequency. This calculates the change in time divided by 48.0*10^6*10*9 -> Output value = dTimeStamp * 2.0833e-17. Output unit = ns
-
-								//cout << xPos.getAbsPos(cbr[i].Count[0]) << "\t" << yPos.getAbsPos(cbr[i].Count[1]) << "\t" << dt << "\t" << lFIFOCount << endl;
-
-								// Calculate the absolute position of the encoders:
-								// Encoder structure should be established before main()
-								encoderX = xPos.getAbsPos(cbr[i].Count[0]); // Get the absolute position of the encoder on the X axis
-								encoderY = yPos.getAbsPos(cbr[i].Count[1]); // Get the absolute position of the encoder on the Y axis
-
-
-								encoderData encoderDataInst; // sets up the class encoderDataInst
-								encoderDataInst.encoderX = encoderX; // saves encoderX and encoderY to this encoderDataInst structure
-								encoderDataInst.encoderY = encoderY;
-
-								// Press "5" key on numberpad to post X and Y encoder positions. - Added by Sam on 9/18
-								if (wnd.keyPressed(VK_NUMPAD5)) // the "4" key on the numberpad moves motor LEFT
-								{
-
-
-									//motors.StopX(); 
-									//motors.DriveLED();
-									cout << "encoder X: " << endl;
-									cout << encoderX << endl;
-									cout << "encoder Y: " << endl;
-									cout << encoderY << endl;
-									cout << "est_dist:" << endl;
-									cout << est_dist << endl;
-
-									int arenaCenterX = 222525;
-									int arenaCenterY = 222450;
-									int frameCenterX = (est_dist.x * 9.6);
-									int frameCenterY = (est_dist.y * 9.6);
-									int encoder_arenaCenter_dist = ((((arenaCenterX - (encoderX + frameCenterX)) ^ 2) + ((arenaCenterY - (encoderY + frameCenterY)) ^ 2)) ^ (1 / 2));
-									cout << "encoder_arenaCenter_dist:" << endl;
-									cout << abs(encoder_arenaCenter_dist) << endl;
-
-									cout << "fvFrameSize:" << endl;
-									cout << fvFrameSize << endl;
-
-									//encoderDataInst.encoderX = encoderX; // saves encoderX and encoderY to this encoderDataInst structure
-									//encoderDataInst.encoderY = encoderY;
-
-									//arenaP.findFlyPos();
-									//cout << arenaP.findFlyPos() << endl; 
-									//cout << flyPos_encoder << endl;
-
-									//	cout << "distance X: " << endl;
-									//	cout << distance.x << endl;
-									//	cout << "distance Y: " << endl;
-									//	cout << distance.y << endl;
-								}
-
-								encoderDataInst.dt = dt; // saves the change in time
-								encoderDataInst.dataNum = ++encCnt; // Iteratively increase encoder count, starting from 0
-								encoderQ.push(encoderDataInst); // shares the information stored in encoderDataInst with encoderQ, a structure created on ~line 132
-
-								//cout << dt << endl;
-								if (dt > correctdt * 1.5 || dt < correctdt * 0.5) // If the change in time is within a corrected range then frames have been skipped. 
-								{
-									cout << "One or more encoder data skipped. Post-processing should take this into account or user should terminate this session" << endl;
-									//cout << dt << endl;
-								}
-								if (lFIFOCount > 1) // If the FIFO buffer is being used at all...
-								{
-									//cout << "Buffering " << lFIFOCount << " data. Minimize computer usage." << endl;
-									if (lFIFOCount == maxBufferSize) // If the FIFO buffer is full...
-									{
-										cout << "Skipped too many data. Terminating the session." << endl;
-										stream = false; // turn stream of data OFF
-										break; // End the sequence
-									}
-								}
-								ulTimeStampPrev = ulTimeStamp; // sets the time stamp previous value to the currently stored one before moving on to the next iteration.
+								dTimeStamp = numeric_limits<unsigned long int>::max() - ulTimeStampPrev + ulTimeStamp; // subract the sum of the previous and
+								
+								// current timestamp data from the max time stamp data acquired
+								//cout << "rare" << endl;
 							}
-							//USB4_ClearDigitalInputTriggerStatus(0);
+							else // otherwise if the current time stamp is equal to or greater than the previous time stamp...
+							{
+								dTimeStamp = ulTimeStamp - ulTimeStampPrev; // create a new timestamp based on the difference between them
+							}
+
+							dt = dTimeStamp / (48.0 * pow(10.0, 6.0)) * pow(10, 9); // Figure out the change in time (ns)
+							// 48.0 is the frequency. This calculates the change in time divided by 48.0*10^6*10*9 -> Output value = dTimeStamp * 2.0833e-17. Output unit = ns
+
+							//cout << xPos.getAbsPos(cbr[i].Count[0]) << "\t" << yPos.getAbsPos(cbr[i].Count[1]) << "\t" << dt << "\t" << lFIFOCount << endl;
+
+							// Calculate the absolute position of the encoders:
+							// Encoder structure should be established before main()
+							encoderX = xPos.getAbsPos(cbr[i].Count[0]); // Get the absolute position of the encoder on the X axis //replace with GetPosition function - NEAL
+							encoderY = yPos.getAbsPos(cbr[i].Count[1]); // Get the absolute position of the encoder on the Y axis 
+
+
+							encoderData encoderDataInst; // sets up the class encoderDataInst
+							encoderDataInst.encoderX = encoderX; // saves encoderX and encoderY to this encoderDataInst structure
+							encoderDataInst.encoderY = encoderY;
+
+							// Press "5" key on numberpad to post X and Y encoder positions. - Added by Sam on 9/18
+							if (wnd.keyPressed(VK_NUMPAD5)) // the "4" key on the numberpad moves motor LEFT
+							{
+
+
+								//motors.StopX(); 
+								//motors.DriveLED();
+								cout << "encoder X: " << endl;
+								cout << encoderX << endl;
+								cout << "encoder Y: " << endl;
+								cout << encoderY << endl;
+								cout << "est_dist:" << endl;
+								cout << est_dist << endl;
+
+								int arenaCenterX = 222525;
+								int arenaCenterY = 222450;
+								int frameCenterX = (est_dist.x * 9.6);
+								int frameCenterY = (est_dist.y * 9.6);
+								int encoder_arenaCenter_dist = ((((arenaCenterX - (encoderX + frameCenterX)) ^ 2) + ((arenaCenterY - (encoderY + frameCenterY)) ^ 2)) ^ (1 / 2));
+								cout << "encoder_arenaCenter_dist:" << endl;
+								cout << abs(encoder_arenaCenter_dist) << endl;
+
+								cout << "fvFrameSize:" << endl;
+								cout << fvFrameSize << endl;
+
+								//encoderDataInst.encoderX = encoderX; // saves encoderX and encoderY to this encoderDataInst structure
+								//encoderDataInst.encoderY = encoderY;
+
+								//arenaP.findFlyPos();
+								//cout << arenaP.findFlyPos() << endl; 
+								//cout << flyPos_encoder << endl;
+
+								//	cout << "distance X: " << endl;
+								//	cout << distance.x << endl;
+								//	cout << "distance Y: " << endl;
+								//	cout << distance.y << endl;
+							}
+
+							encoderDataInst.dt = dt; // saves the change in time
+							encoderDataInst.dataNum = ++encCnt; // Iteratively increase encoder count, starting from 0
+							encoderQ.push(encoderDataInst); // shares the information stored in encoderDataInst with encoderQ, a structure created on ~line 132
+
+							//cout << dt << endl;
+							if (dt > correctdt * 1.5 || dt < correctdt * 0.5) // If the change in time is within a corrected range then frames have been skipped. 
+							{
+								cout << "One or more encoder data skipped. Post-processing should take this into account or user should terminate this session" << endl;
+								//cout << dt << endl;
+							}
+							if (lFIFOCount > 1) // If the FIFO buffer is being used at all...
+							{
+								//cout << "Buffering " << lFIFOCount << " data. Minimize computer usage." << endl;
+								if (lFIFOCount == maxBufferSize) // If the FIFO buffer is full...
+								{
+									cout << "Skipped too many data. Terminating the session." << endl;
+									stream = false; // turn stream of data OFF
+									break; // End the sequence
+								}
+							}
+							ulTimeStampPrev = ulTimeStamp; // sets the time stamp previous value to the currently stored one before moving on to the next iteration.
 						}
-						// eStop is the pin #1 on the decoder/ USB4 --> eStop = LATCHING EMERGENCY STOP FOR THE 8 DIGITAL OUTPUTS
-						motors.eStopUpX = xPos.eStopUp; // Move the x axis motor's position UP (right)
-						motors.eStopDownX = xPos.eStopDown; // Move the x axis motor's position DOWN (left)
-						motors.eStopUpY = yPos.eStopUp; // Move the y axis motor's position UP (up)
-						motors.eStopDownY = yPos.eStopDown; // Move the y axis motor's position DOWN (down)
+						//USB4_ClearDigitalInputTriggerStatus(0);
 					}
+				}
 
 					// Andrew: this is not currently set up to work
 					/// MOVE THE TOP CAMERA UP OR DOWN:
@@ -859,9 +823,7 @@ int main(int argc, char* argv[]) // argc: argument count, argv: argument vector
 					// press escape to exit, and set stream to false to exit all other loops in other threads
 					if (wnd.keyPressed(VK_ESCAPE) || !stream)
 					{
-						motors.StopOptoLED();
-						motors.onLED = 0;
-						//LEDState = 0;
+						 // Create stop function - NEAL
 						USB4_StopAcquisition(0); // stop acquisition of the decoder
 						stream = false; // stop stream from decoder
 						break; // break sequence
@@ -1411,17 +1373,18 @@ int main(int argc, char* argv[]) // argc: argument count, argv: argument vector
 
 				Point2f virtualDist(0, 0); // set the initial values for virtual distance and virtual velocity to 0.
 				Point2f virtualVel(0, 0); //
-				int manualSpeed = 300; // Set the manual speed of the motor to 300. 300 what? Steps? yes, micrometer
+				// int manualSpeed = 300; // Set the manual speed of the motor to 300. 300 what? Steps? yes, micrometer
+				int manualSpeed = 40; //This is set to mm/s
 
 				// Turn off illuminating LED when pressing L, in case it needs to be done to find the fly better in the top camera
-				if (wnd.keyPressed(0x4C))
-				{
-					motors.StopIlluminatingLED();
-				}
-				else if (!motors.illuminatingLightOn)
-				{
-					motors.DriveIlluminatingLED();
-				}
+				// if (wnd.keyPressed(0x4C)) better to create a separate function for this
+				// {
+				// 	motors.StopIlluminatingLED();
+				// }
+				// else if (!motors.illuminatingLightOn)
+				// {
+				// 	motors.DriveIlluminatingLED();
+				// }
 
 				// Click "M" to toggle between manual mode/ automatic mode:
 				if (wnd.keyPressed(0x4D)) // 0x4D is ASCII for: "M"
@@ -1485,7 +1448,7 @@ int main(int argc, char* argv[]) // argc: argument count, argv: argument vector
 							Point2f controlInVel(0.0f, 0.0f);
 							controlIn.x = (arenaP.flyPos_encoder.x - encoderX) / objectSpaceResolution;
 							controlIn.y = (arenaP.flyPos_encoder.y - encoderY) / objectSpaceResolution;
-							motors.SetDirAndFreq(controlIn, controlInVel, true, true); // if its automatic tracking and encoder-based
+							motors.SetVelocity(controlIn, controlInVel, true); // if its automatic tracking and encoder-based
 							if (norm(controlIn) < 30) 
 							{
 								arenaP.allowBottomCamToGo = true;
@@ -1505,7 +1468,7 @@ int main(int argc, char* argv[]) // argc: argument count, argv: argument vector
 						{
 							// sleep call added after upgrading to a new computer caused loop to run faster and camera to become shakier
 							Sleep(10);
-							motors.SetDirAndFreq(est_dist, est_vel, true, false);
+							motors.SetVelocity(est_dist, est_vel, true);
 
 							if (firstCalling1) 
 							{
@@ -1525,7 +1488,7 @@ int main(int argc, char* argv[]) // argc: argument count, argv: argument vector
 								firstCalling1 = true;
 								firstCalling2 = true;
 								firstCalling3 = false;
-								motors.SetDirAndFreq(Point2f(0, 0), Point2f(0, 0), true, false);
+								motors.SetVelocity(Point2f(0, 0), Point2f(0, 0), true);
 							}
 						}
 					}
@@ -1567,14 +1530,14 @@ int main(int argc, char* argv[]) // argc: argument count, argv: argument vector
 
 					// THIS MOVEMENT IS NOT BASED ON INFORMATION FROM THE ENCODER (INDICATED BY THE 2ND "false"). THIS MEANS WE ARE MANUALLY CONTROLLING THE POSITION OF THE BOT CAMERA
 					// AND THE PROPORTIONAL CONTROL IS NOT BEING USED. INSTEAD, A VIRTUAL DISTANCE AND VELOCITY ARE SET WHEN THE KEY IS PRESSED AND THOSE MOTIONS ARE INITIATED.
-					motors.SetDirAndFreq(virtualDist, virtualVel, false, false); // Command motor to move based on virtual distance and virtual velocity while bot camera is under MANUAL control.
+					motors.SetVelocity(virtualDist, virtualVel, false); // Command motor to move based on virtual distance and virtual velocity while bot camera is under MANUAL control.
 					//cout << virtualVel << endl;
-					//motors.SetDirAndFreq(virtualDist, virtualVel, false, true); //
-					// motors.SetDirAndFreq appears to be defined in gantry.cpp
-					// line 81 of gantry.cpp: Gantry::SetDirAndFreq(cv::Point2f pt, cv::Point2f vel, bool automatic, bool encoder_based)
-					// At the end of SetDirAndFreq, values for DAQmxSetChanAttribute are set. 
+					//motors.SetVelocity(virtualDist, virtualVel, false); //
+					// motors.SetVelocity appears to be defined in gantry.cpp
+					// line 81 of gantry.cpp: Gantry::SetVelocity(cv::Point2f pt, cv::Point2f vel, bool automatic)
+					// At the end of SetVelocity, values for Zaber's Velocity are set. 
 
-					// After the motor is moved with SetDirAndFreq, the changes are relayed to the DAQ.
+					// After the motor is moved with SetDirAndFreq, the changes are relayed to the Zaber.
 				}
 				if (!stream) // If no stream is present
 				{
