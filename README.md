@@ -2,12 +2,12 @@
 
 ## Project Overview
 
-This is a comprehensive automated system for real-time behavioral tracking and visual stimulus control in fly experiments. The system integrates multi-camera vision, motion control, projection mapping, and data collection into a unified C++ application designed for high-speed, coordinated control of experimental apparatus.
+This is a comprehensive automated system for real-time behavioral tracking and visual stimulus control in fly experiments. The system integrates dual-camera vision, motion control, projection mapping, and data collection into a unified C++ application designed for high-speed, coordinated control of experimental apparatus.
 
 ## Purpose
 
 The fly gantry system enables researchers to:
-- Track fly position and orientation in real-time using multi-camera setup
+- Track fly position and orientation in real-time using dual-camera setup
 - Deliver precisely-timed visual stimuli via DLP projector
 - Control motion platform (Zaber gantry) for targeted stimulus delivery
 - Collect comprehensive experimental data in an organized, structured format
@@ -45,7 +45,7 @@ Main application code and experiments
   - `DLP-ALC-LIGHTCRAFTER-SDK/` - TI DLP projector SDK
 
 #### `/gantry/experiments/cameras/`
-Camera calibration and multi-camera experiments
+Camera calibration and dual-camera experiments
 - `camera_alignment_*.py` - Python utilities for camera alignment
 - `detect_basler_cameras.py` - Camera discovery and initialization
 - `dual_basler_display.cpp` - Dual camera display application
@@ -151,7 +151,7 @@ cd gantry/fly_gantry_v3/build/bin
 
 ## Key Features
 
-**Real-time Multi-Camera Vision**
+**Real-time dual-camera Vision**
 - Dual Basler cameras (bottom + side) at high frame rates
 - Synchronized capture with projector stimulus timing
 
@@ -183,7 +183,7 @@ cd gantry/fly_gantry_v3/build/bin
 
 ## Project Status
 
-- **V3 (Current):** Full-featured implementation with multi-camera, projector, gantry, YOLO detection, and comprehensive data export
+- **V3 (Current):** Full-featured implementation with dual-camera, projector, gantry, YOLO detection, and comprehensive data export
 - **V2 (Legacy):** Previous iteration; superseded by V3
 - **Experiments:** Modular camera calibration, gantry testing, and projector alignment utilities
 
