@@ -1,4 +1,4 @@
-# NeuroTrack: A Platform for Fly Brain Function
+# NeuroTrack: A Platform for Fly Brain Function (Drexel 2026 COE Senior Design)
 
 ## Project Overview
 NeuroTrack is an updated robotic gantry model made in association with Bhandawat Laboratory at Drexel University to improve data quality in fruitfly research via enhanced hardware from Zaber Technologies integrated with open-source software.
@@ -191,5 +191,7 @@ cd gantry/fly_gantry_v3/build/bin
 ## Contact & References
 
 **Senior Design:** Drexel University 2026
+
 **Primary Application:** `gantry/fly_gantry_v3/gantrycodeV3.cpp`
+
 **Build Script:** `gantry/fly_gantry_v3/build.bat`
