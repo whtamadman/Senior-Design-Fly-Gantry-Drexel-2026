@@ -110,5 +110,13 @@ namespace ZaberGantry {
         catch (const std::exception& e) {
             std::cerr << "Motion error: " << e.what() << std::endl;
         }
+
+    }
+
+    cv::Point2f Gantry::GetPosition() {
+        double posX = xAxis.getPosition(posUnit);
+        double posY = yAxis.getPosition(posUnit);
+        return cv::Point2f(posX, posY);
     }
 } // namespace ZaberGantry
+

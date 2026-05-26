@@ -10,7 +10,7 @@ int main()
     Gantry motors("COM4");
     motors.configure();
 
-    const double manualSpeed = 50.0; // mm per update
+    const double manualSpeedx = 50.0; // mm per update
     const double manualSpeedy = 50.0; // mm per update
 
     cv::Point2f virtualDist(0, 0);
@@ -26,16 +26,14 @@ int main()
         // RIGHT
         if (GetAsyncKeyState(VK_RIGHT) & 0x8000)
         {
-            virtualVel.x = manualSpeed;
+            virtualVel.x = manualSpeedx;
             std::cout << "Pressed right\n";
         }
-
-
 
         // LEFT
         if (GetAsyncKeyState(VK_LEFT) & 0x8000)
         {
-            virtualVel.x = -manualSpeed;
+            virtualVel.x = -manualSpeedx;
             std::cout << "Pressed left\n";
         }
         // UP
@@ -44,8 +42,6 @@ int main()
             virtualVel.y = manualSpeedy;
             std::cout << "Pressed up\n";
         }
-
-
 
         // DOWN
         if (GetAsyncKeyState(VK_DOWN) & 0x8000)
@@ -59,7 +55,6 @@ int main()
             break;
 
         motors.SetVelocity(virtualDist, virtualVel, false);
-
 
         Sleep(10);
     }

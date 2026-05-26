@@ -23,6 +23,8 @@ namespace ZaberGantry {
         //main function to move, gives a range for how far you want to move relative to current position 
         void SetVelocity(cv::Point2f pt, cv::Point2f vel, bool automatic = true);
 
+        cv::Point2f GetPosition();
+
     private:
 
         // stores actuators devices
