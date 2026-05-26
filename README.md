@@ -1,13 +1,14 @@
-# Fly Gantry System - Senior Design Project
+# NeuroTrack: A Platform for Fly Brain Function
 
 ## Project Overview
+NeuroTrack is an updated robotic gantry model made in association with Bhandawat Laboratory at Drexel University to improve data quality in fruitfly research via enhanced hardware from Zaber Technologies integrated with open-source software.
 
-This is a comprehensive automated system for real-time behavioral tracking and visual stimulus control in fly experiments. The system integrates multi-camera vision, motion control, projection mapping, and data collection into a unified C++ application designed for high-speed, coordinated control of experimental apparatus.
+This is a comprehensive automated system for real-time behavioral tracking and visual stimulus control in fly experiments. The system integrates dual-camera vision, motion control, projection mapping, and data collection into a unified C++ application designed for high-speed, coordinated control of experimental apparatus.
 
 ## Purpose
 
 The fly gantry system enables researchers to:
-- Track fly position and orientation in real-time using multi-camera setup
+- Track fly position and orientation in real-time using dual-camera setup
 - Deliver precisely-timed visual stimuli via DLP projector
 - Control motion platform (Zaber gantry) for targeted stimulus delivery
 - Collect comprehensive experimental data in an organized, structured format
