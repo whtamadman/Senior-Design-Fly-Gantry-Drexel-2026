@@ -1,6 +1,7 @@
-# Fly Gantry System - Senior Design Project
+# NeuroTrack: A Platform for Fly Brain Function (Drexel 2026 COE Senior Design)
 
 ## Project Overview
+NeuroTrack is an updated robotic gantry model made in association with Bhandawat Laboratory at Drexel University to improve data quality in fruitfly research via enhanced hardware from Zaber Technologies integrated with open-source software.
 
 This is a comprehensive automated system for real-time behavioral tracking and visual stimulus control in fly experiments. The system integrates dual-camera vision, motion control, projection mapping, and data collection into a unified C++ application designed for high-speed, coordinated control of experimental apparatus.
 
@@ -190,5 +191,7 @@ cd gantry/fly_gantry_v3/build/bin
 ## Contact & References
 
 **Senior Design:** Drexel University 2026
+
 **Primary Application:** `gantry/fly_gantry_v3/gantrycodeV3.cpp`
+
 **Build Script:** `gantry/fly_gantry_v3/build.bat`
