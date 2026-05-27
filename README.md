@@ -60,7 +60,7 @@ Zaber gantry motion control testing
 
 #### `/gantry/experiments/projector/`
 DLP projector calibration and control
-- `calibration_test.cpp` - Projector calibration procedures
+- `calibration_test.cpp` - Projector calibration tests
 - `camera_to_projector_matrix.csv` - Calibration data
 - `DLP-ALC-LIGHTCRAFTER-SDK/` - Texas Instruments DLP SDK
 - `document.cpp` - Projector documentation/utilities
