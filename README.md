@@ -20,10 +20,9 @@ The fly gantry system enables researchers to:
 Main application code and experiments
 
 #### `/gantry/fly_gantry_v3/`
-**Primary application executable** - Full-featured fly tracking and stimulus control system
+**Primary application executable**
 - **Core Application Files:**
   - `gantrycodeV3.cpp` - Main application with camera threads, UI, gantry control, and data collection
-  - `gantrycodeV3.cpp` - Primary implementation
   - `pch.h/cpp` - Precompiled headers
   
 - **Data Persistence:**
@@ -43,7 +42,7 @@ Main application code and experiments
 
 - **Dependencies:**
   - `ZaberMotionLibrary/` - Zaber gantry motion control SDK
-  - `DLP-ALC-LIGHTCRAFTER-SDK/` - TI DLP projector SDK
+  - `DLP-ALC-LIGHTCRAFTER-SDK/` - TI DLP projector SDK (utilize include files specific to DLP 4500)
 
 #### `/gantry/experiments/cameras/`
 Camera calibration and dual-camera experiments
@@ -70,7 +69,7 @@ DLP projector calibration and control
 
 ### Hardware
 - **Cameras:** Basler Pylon USB cameras (bottom + side)
-- **Motion Control:** Zaber gantry system (ASCII protocol over COM)
+- **Motion Control:** Zaber gantry system (ASCII protocol over COM4)
 - **Projector:** TI DLP LightCrafter 4500 (DLP ALC SDK)
 - **Computing:** Windows PC with Visual Studio 2022
 
