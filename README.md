@@ -120,8 +120,9 @@ Documents/Data/
 ### Prerequisites
 1. **Visual Studio 2022** with C++ workload
 2. **CMake 3.15+**
-3. **vcpkg** for dependency management
-4. **SDKs installed** at paths defined in `CMakeLists.txt`
+3. **Compiler:** Microsoft Visual C++ (**MSVC**) (verified with MSVC 19.44.35225.0)
+4. **vcpkg** for dependency management
+5. **SDKs installed** at paths defined in `CMakeLists.txt`
 
 ### Build Steps
 ```bash
