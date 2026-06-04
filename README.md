@@ -143,10 +143,27 @@ cd gantry/fly_gantry_v3/build/bin
 ```
 
 ### Runtime Controls
+
+**Keyboard Controls**
 - **S** - Toggle data collection (start/stop recording)
+- **M** - Enable/disable automatic tracking mode
+- **SPACE** - Confirm and enable automatic tracking (after M is pressed)
+- **Arrow Keys / IJKL** - Manual gantry movement
+- **P** - Toggle projector on/off
+
+**Console Commands (type in console)**
+- `cam <cx> <cy>` - Aim projector at camera pixel coordinates (0-800, 0-600)
+- `head` - Print latest head center coordinates (camera and DMD pixels)
+- `blank` - Blank projector output
+- `unblank` - Restore projector output
+- `quit` - Stop program and exit
+
+**UI Buttons**
 - **STOP Button** - Halt gantry motion and data collection (keeps app running)
 - **EXIT Button** - Close application and save final data
 - **Mouse Clicks** - Select stimuli and trigger projector patterns
+
+**Display**
 - Run timer displayed in UI shows elapsed time while collecting data
 
 ## Key Features

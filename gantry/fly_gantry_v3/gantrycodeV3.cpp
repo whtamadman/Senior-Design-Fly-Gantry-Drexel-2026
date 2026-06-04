@@ -1358,6 +1358,7 @@ int main(int argc, char* argv[])
             {
                 cout << "\n--- Projector Console ---" << endl;
                 cout << "  cam <cx> <cy>  : aim at camera pixel (0-800, 0-600)" << endl;
+                cout << "  head           : print latest head center in camera and DMD pixels" << endl;
                 cout << "  blank          : blank projector output" << endl;
                 cout << "  unblank        : restore projector output" << endl;
                 cout << "  quit           : stop program" << endl;
@@ -1419,9 +1420,40 @@ int main(int argc, char* argv[])
                             }
                         }
                     }
+                    else if (token == "head")
+                    {
+                        bool headDetected = false;
+                        Point headCenter;
+                        {
+                            std::lock_guard<std::mutex> lock(sharedCtx.yoloMutex);
+                            headDetected = sharedCtx.headDetected;
+                            headCenter = sharedCtx.headCoM;
+                        }
+
+                        if (!headDetected)
+                        {
+                            cout << "Head center unavailable: no head is currently detected." << endl;
+                        }
+                        else
+                        {
+                            unsigned int px = 0;
+                            unsigned int py = 0;
+                            cout << "Head center (camera px): X=" << headCenter.x
+                                 << " Y=" << headCenter.y;
+                            if (ApplyHomography(H, static_cast<double>(headCenter.x), static_cast<double>(headCenter.y), px, py))
+                            {
+                                cout << " -> DMD (" << px << ", " << py << ")";
+                            }
+                            else
+                            {
+                                cout << " -> DMD mapping unavailable";
+                            }
+                            cout << endl;
+                        }
+                    }
                     else
                     {
-                        cout << "Unknown command. Type 'cam cx cy', 'blank', 'unblank', or 'quit'." << endl;
+                        cout << "Unknown command. Type 'cam cx cy', 'head', 'blank', 'unblank', or 'quit'." << endl;
                     }
                 }
             }
