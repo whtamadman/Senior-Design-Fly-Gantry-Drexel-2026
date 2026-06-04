@@ -52,22 +52,22 @@ using namespace Basler_UsbCameraParams;
 using ZaberGantry::Gantry;
 
 namespace {
-
-constexpr double kFrequencyHz = 480.0;
-constexpr double kObjectSpaceResolutionUmPerPixel = 4.8 / 0.5; // 9.6 um/pixel
-constexpr double kManualSpeedMmPerSec = 5;
-constexpr int kYoloInputWidth = 296;
-constexpr int kYoloInputHeight = 300;
-constexpr int kFlyMissHoldFrames = 5;
-constexpr int kCenterAverageWindow = 5;
-constexpr float kAutoMaxErrorPx = 40.0f;
-constexpr float kAutoMaxVelPxPerUpdate = 100.0f;
+// Gantry and YOLO acquisition constants
+constexpr double kFrequencyHz = 480.0;                          // target camera acquisition rate (Hz)
+constexpr double kObjectSpaceResolutionUmPerPixel = 4.8 / 0.5; // 9.6 um/pixel — physical scale of bottom camera
+constexpr double kManualSpeedMmPerSec = 5;                      // gantry speed when driven by arrow/IJKL keys
+constexpr int kYoloInputWidth = 296;                            // width frames are downsampled to before YOLO inference
+constexpr int kYoloInputHeight = 300;                           // height frames are downsampled to before YOLO inference
+constexpr int kFlyMissHoldFrames = 5;                           // consecutive missed detections before fly is considered lost
+constexpr int kCenterAverageWindow = 5;                         // number of recent body detections averaged for smooth centering
+constexpr float kAutoMaxErrorPx = 40.0f;                        // max pixel error magnitude clamped in auto-tracking correction
+constexpr float kAutoMaxVelPxPerUpdate = 100.0f;                // max pixel velocity fed to gantry per auto-tracking update
 
 // Projector DMD constants
-constexpr unsigned int kDmdColumns = 912;
-constexpr unsigned int kDmdRows = 1140;
-constexpr unsigned int kSpotWidthPixels = 3;
-constexpr unsigned int kSpotHeightPixels = 4;
+constexpr unsigned int kDmdColumns = 912;                       // DMD horizontal resolution (pixels)
+constexpr unsigned int kDmdRows = 1140;                         // DMD vertical resolution (pixels)
+constexpr unsigned int kSpotWidthPixels = 3;                    // width of the projected stimulus spot on the DMD
+constexpr unsigned int kSpotHeightPixels = 4;                   // height of the projected stimulus spot on the DMD
 
 // Keep false when TI GUI already owns USB HID and projector is already in video mode.
 // Set true only if you need exclusive USB control and TI GUI is not running.
