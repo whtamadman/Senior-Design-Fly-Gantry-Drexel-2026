@@ -61,6 +61,7 @@ constexpr int kYoloInputHeight = 300;
 constexpr int kFlyMissHoldFrames = 5;
 constexpr int kCenterAverageWindow = 5;
 constexpr float kAutoMaxErrorPx = 40.0f;
+constexpr float kAutoMaxVelPxPerUpdate = 100.0f;
 
 // Projector DMD constants
 constexpr unsigned int kDmdColumns = 912;
@@ -925,6 +926,10 @@ int main(int argc, char* argv[])
                                 std::max(-kAutoMaxErrorPx, std::min(kAutoMaxErrorPx, estDist.x)),
                                 std::max(-kAutoMaxErrorPx, std::min(kAutoMaxErrorPx, estDist.y)));
 
+                            Point2f clampedVel(
+                                std::max(-kAutoMaxVelPxPerUpdate, std::min(kAutoMaxVelPxPerUpdate, estVel.x)),
+                                std::max(-kAutoMaxVelPxPerUpdate, std::min(kAutoMaxVelPxPerUpdate, estVel.y)));
+
                             const bool allowThisCycle = !(autoJustEnabled && !flyFoundFresh);
                             if (flyFound && distMag > kCenterDeadbandPx && allowThisCycle)
                             {
@@ -932,9 +937,9 @@ int main(int argc, char* argv[])
                                 // Feed filtered velocity too, so Gantry::SetVelocity can use kf term.
                                 cout << "AUTO move command (px): distX=" << clampedDist.x
                                      << " distY=" << clampedDist.y
-                                     << " velX=" << estVel.x
-                                     << " velY=" << estVel.y << endl;
-                                motors->SetVelocity(clampedDist, -estVel, true);
+                                      << " velX=" << clampedVel.x
+                                      << " velY=" << clampedVel.y << endl;
+                                  motors->SetVelocity(clampedDist, -clampedVel, true);
                             }
                             else
                             {
