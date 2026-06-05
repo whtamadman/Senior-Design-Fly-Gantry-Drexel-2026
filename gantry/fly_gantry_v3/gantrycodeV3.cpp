@@ -451,7 +451,8 @@ struct SharedContext
     Point2f manualVelocity;
     bool saveEnabled = false;
     bool stopRequested = false;
-    unsigned long frameCounter = 0;
+    unsigned long frameCounter = 0;     // incremented by bottom camera thread under frameMutex
+    unsigned long sideFrameCounter = 0;  // incremented by side camera thread under frameMutex
     
     // Projector target pixel from camera click
     unsigned int projectorTargetX = kDmdColumns / 2U;
@@ -817,6 +818,7 @@ int main(int argc, char* argv[])
                     {
                         std::lock_guard<std::mutex> lock(sharedCtx.frameMutex);
                         sharedCtx.sideFrame = grayFrame.clone();
+                        sharedCtx.sideFrameCounter++;
                     }
                 }
             }
@@ -1627,6 +1629,12 @@ int main(int argc, char* argv[])
         bool saveTimerRunning = false;
         auto saveTimerStart = std::chrono::steady_clock::now();
 
+        double bottomFps = 0.0;
+        double sideFps = 0.0;
+        unsigned long lastBottomFrameCount = 0;
+        unsigned long lastSideFrameCount = 0;
+        auto lastFpsTime = std::chrono::steady_clock::now();
+
         // Main thread handles display (OpenCV requires main thread for imshow/waitKey)
         while (!sharedCtx.stopRequested)
         {
@@ -1654,9 +1662,36 @@ int main(int argc, char* argv[])
                 velocity = sharedCtx.manualVelocity;
             }
 
+            // Update FPS counters approximately every 0.5 s
+            {
+                const auto fpsNow = std::chrono::steady_clock::now();
+                const double fpsDt = std::chrono::duration<double>(fpsNow - lastFpsTime).count();
+                if (fpsDt >= 0.5)
+                {
+                    unsigned long curBottom = 0;
+                    unsigned long curSide = 0;
+                    {
+                        std::lock_guard<std::mutex> lock(sharedCtx.frameMutex);
+                        curBottom = sharedCtx.frameCounter;
+                        curSide   = sharedCtx.sideFrameCounter;
+                    }
+                    bottomFps = static_cast<double>(curBottom - lastBottomFrameCount) / fpsDt;
+                    sideFps   = static_cast<double>(curSide   - lastSideFrameCount)   / fpsDt;
+                    lastBottomFrameCount = curBottom;
+                    lastSideFrameCount   = curSide;
+                    lastFpsTime = fpsNow;
+                }
+            }
+
             Mat displayFrame;
             cvtColor(bottomFrame, displayFrame, COLOR_GRAY2BGR);
             putText(displayFrame, "BOTTOM CAMERA", Point(20, bottomFrame.rows - 20), FONT_HERSHEY_SIMPLEX, 0.6, Scalar(0, 255, 0), 2);
+            {
+                const std::string fpsTxt = "FPS: " + std::to_string(static_cast<int>(std::round(bottomFps)));
+                int baseline = 0;
+                const cv::Size ts = cv::getTextSize(fpsTxt, FONT_HERSHEY_SIMPLEX, 0.6, 2, &baseline);
+                putText(displayFrame, fpsTxt, Point(displayFrame.cols - ts.width - 10, 30), FONT_HERSHEY_SIMPLEX, 0.6, Scalar(0, 255, 255), 2);
+            }
             line(displayFrame, Point(bottomFrame.cols / 2 - 15, bottomFrame.rows / 2), Point(bottomFrame.cols / 2 + 15, bottomFrame.rows / 2), Scalar(0, 255, 255), 1);
             line(displayFrame, Point(bottomFrame.cols / 2, bottomFrame.rows / 2 - 15), Point(bottomFrame.cols / 2, bottomFrame.rows / 2 + 15), Scalar(0, 255, 255), 1);
 
@@ -1743,7 +1778,14 @@ int main(int argc, char* argv[])
                 sideDisplay = sideBgr;
             }
             putText(sideDisplay, "SIDE CAMERA", Point(20, sideDisplay.rows - 20), FONT_HERSHEY_SIMPLEX, 0.6, Scalar(0, 255, 0), 2);
-            if (!sideCamera)
+            if (sideCamera)
+            {
+                const std::string fpsTxt = "FPS: " + std::to_string(static_cast<int>(std::round(sideFps)));
+                int baseline = 0;
+                const cv::Size ts = cv::getTextSize(fpsTxt, FONT_HERSHEY_SIMPLEX, 0.6, 2, &baseline);
+                putText(sideDisplay, fpsTxt, Point(sideDisplay.cols - ts.width - 10, 30), FONT_HERSHEY_SIMPLEX, 0.6, Scalar(0, 255, 255), 2);
+            }
+            else
             {
                 putText(sideDisplay, "NOT DETECTED", Point(20, 40), FONT_HERSHEY_SIMPLEX, 0.8, Scalar(0, 200, 255), 2);
             }
