@@ -352,14 +352,21 @@ struct StopButtonUiState
     enum class ButtonId
     {
         None,
+        TargetDropdown,
+        TargetOption,
         Stop,
         Exit,
     };
 
     std::mutex mutex;
+    cv::Rect targetDropdownRect;
+    std::vector<cv::Rect> targetOptionRects;
     cv::Rect stopButtonRect;
     cv::Rect exitButtonRect;
     ButtonId pressedButton = ButtonId::None;
+    int pressedTargetOptionIndex = -1;
+    int targetSelectionClickedIndex = -1;
+    bool targetDropdownExpanded = false;
     bool stopClicked = false;
     bool exitClicked = false;
 };
@@ -391,25 +398,74 @@ void OnCameraFeedsMouse(int event, int x, int y, int /*flags*/, void* userdata)
 
     if (event == cv::EVENT_LBUTTONDOWN)
     {
-        if (uiState->stopButtonRect.contains(p))
+        uiState->pressedTargetOptionIndex = -1;
+        if (uiState->targetDropdownRect.contains(p))
         {
-            uiState->pressedButton = StopButtonUiState::ButtonId::Stop;
-        }
-        else if (uiState->exitButtonRect.contains(p))
-        {
-            uiState->pressedButton = StopButtonUiState::ButtonId::Exit;
+            uiState->pressedButton = StopButtonUiState::ButtonId::TargetDropdown;
         }
         else
         {
-            uiState->pressedButton = StopButtonUiState::ButtonId::None;
+            bool hitOption = false;
+            if (uiState->targetDropdownExpanded)
+            {
+                for (size_t i = 0; i < uiState->targetOptionRects.size(); ++i)
+                {
+                    if (uiState->targetOptionRects[i].contains(p))
+                    {
+                        uiState->pressedButton = StopButtonUiState::ButtonId::TargetOption;
+                        uiState->pressedTargetOptionIndex = static_cast<int>(i);
+                        hitOption = true;
+                        break;
+                    }
+                }
+            }
+
+            if (!hitOption)
+            {
+                if (uiState->stopButtonRect.contains(p))
+                {
+                    uiState->pressedButton = StopButtonUiState::ButtonId::Stop;
+                }
+                else if (uiState->exitButtonRect.contains(p))
+                {
+                    uiState->pressedButton = StopButtonUiState::ButtonId::Exit;
+                }
+                else
+                {
+                    uiState->pressedButton = StopButtonUiState::ButtonId::None;
+                }
+            }
         }
     }
     else if (event == cv::EVENT_LBUTTONUP)
     {
+        const bool releasedOnTargetDropdown = uiState->targetDropdownRect.contains(p);
+        bool releasedOnTargetOption = false;
+        int releasedTargetOptionIndex = -1;
+        for (size_t i = 0; i < uiState->targetOptionRects.size(); ++i)
+        {
+            if (uiState->targetOptionRects[i].contains(p))
+            {
+                releasedOnTargetOption = true;
+                releasedTargetOptionIndex = static_cast<int>(i);
+                break;
+            }
+        }
         const bool releasedOnStop = uiState->stopButtonRect.contains(p);
         const bool releasedOnExit = uiState->exitButtonRect.contains(p);
 
-        if (uiState->pressedButton == StopButtonUiState::ButtonId::Stop && releasedOnStop)
+        if (uiState->pressedButton == StopButtonUiState::ButtonId::TargetDropdown && releasedOnTargetDropdown)
+        {
+            uiState->targetDropdownExpanded = !uiState->targetDropdownExpanded;
+        }
+        else if (uiState->pressedButton == StopButtonUiState::ButtonId::TargetOption &&
+                 releasedOnTargetOption &&
+                 releasedTargetOptionIndex == uiState->pressedTargetOptionIndex)
+        {
+            uiState->targetSelectionClickedIndex = releasedTargetOptionIndex;
+            uiState->targetDropdownExpanded = false;
+        }
+        else if (uiState->pressedButton == StopButtonUiState::ButtonId::Stop && releasedOnStop)
         {
             uiState->stopClicked = true;
         }
@@ -417,8 +473,26 @@ void OnCameraFeedsMouse(int event, int x, int y, int /*flags*/, void* userdata)
         {
             uiState->exitClicked = true;
         }
+        else if (uiState->targetDropdownExpanded && !releasedOnTargetDropdown && !releasedOnTargetOption)
+        {
+            uiState->targetDropdownExpanded = false;
+        }
+
         uiState->pressedButton = StopButtonUiState::ButtonId::None;
+        uiState->pressedTargetOptionIndex = -1;
     }
+}
+
+bool ConsumeTargetSelectionClick(StopButtonUiState& uiState, int& selectedIndex)
+{
+    std::lock_guard<std::mutex> lock(uiState.mutex);
+    if (uiState.targetSelectionClickedIndex < 0)
+    {
+        return false;
+    }
+    selectedIndex = uiState.targetSelectionClickedIndex;
+    uiState.targetSelectionClickedIndex = -1;
+    return true;
 }
 
 bool ConsumeStopButtonClick(StopButtonUiState& uiState)
@@ -444,6 +518,25 @@ bool ConsumeExitButtonClick(StopButtonUiState& uiState)
 }
 
 // Shared data structure for thread-safe frame passing and state
+enum class ProjectorTargetPart
+{
+    Head,
+    Body,
+};
+
+const char* ProjectorTargetPartLabel(ProjectorTargetPart targetPart)
+{
+    switch (targetPart)
+    {
+    case ProjectorTargetPart::Head:
+        return "HEAD";
+    case ProjectorTargetPart::Body:
+        return "BODY";
+    default:
+        return "UNKNOWN";
+    }
+}
+
 struct SharedContext
 {
     Mat bottomFrame;
@@ -460,6 +553,7 @@ struct SharedContext
     bool projectorTargetUpdated = false;
     bool projectorBlank = false;
     bool projectorEnabled = false;
+    ProjectorTargetPart projectorTargetPart = ProjectorTargetPart::Head;
     
     std::mutex frameMutex;
     // YOLO detection results (protected by yoloMutex)
@@ -1596,6 +1690,10 @@ int main(int argc, char* argv[])
         unsigned long lastBottomFrameCount = 0;
         unsigned long lastSideFrameCount = 0;
         auto lastFpsTime = std::chrono::steady_clock::now();
+        const std::vector<ProjectorTargetPart> projectorTargetOptions = {
+            ProjectorTargetPart::Head,
+            ProjectorTargetPart::Body,
+        };
 
         // Main thread handles display (OpenCV requires main thread for imshow/waitKey)
         while (!sharedCtx.stopRequested)
@@ -1707,25 +1805,23 @@ int main(int argc, char* argv[])
                 yoloHeadBox = sharedCtx.headBox;
             }
 
-            // Auto-aim projector at detected head if projector is enabled
+            // Auto-aim projector at selected target part if projector is enabled.
             {
-                bool headDetected = false;
-                Point headCoM;
                 bool projectorEnabled = false;
-                {
-                    std::lock_guard<std::mutex> lock(sharedCtx.yoloMutex);
-                    headDetected = sharedCtx.headDetected;
-                    headCoM = sharedCtx.headCoM;
-                }
+                ProjectorTargetPart projectorTargetPart = ProjectorTargetPart::Head;
                 {
                     std::lock_guard<std::mutex> lock(sharedCtx.projectorMutex);
                     projectorEnabled = sharedCtx.projectorEnabled;
+                    projectorTargetPart = sharedCtx.projectorTargetPart;
                 }
 
-                if (projectorEnabled && headDetected)
+                const bool targetDetected = (projectorTargetPart == ProjectorTargetPart::Head) ? yoloHeadDetected : yoloFlyDetected;
+                const Point targetCoM = (projectorTargetPart == ProjectorTargetPart::Head) ? yoloHeadCoM : yoloBodyCoM;
+
+                if (projectorEnabled && targetDetected)
                 {
                     unsigned int projX = 0, projY = 0;
-                    if (ApplyHomography(H, static_cast<double>(headCoM.x), static_cast<double>(headCoM.y), projX, projY))
+                    if (ApplyHomography(H, static_cast<double>(targetCoM.x), static_cast<double>(targetCoM.y), projX, projY))
                     {
                         std::lock_guard<std::mutex> lock(sharedCtx.projectorMutex);
                         sharedCtx.projectorTargetX = projX;
@@ -1765,11 +1861,17 @@ int main(int argc, char* argv[])
 
             // Projector status GUI
             bool projectorEnabled = false;
+            ProjectorTargetPart projectorTargetPart = ProjectorTargetPart::Head;
             {
                 std::lock_guard<std::mutex> lock(sharedCtx.projectorMutex);
                 projectorEnabled = sharedCtx.projectorEnabled;
+                projectorTargetPart = sharedCtx.projectorTargetPart;
             }
-            string projectorStatusStr = projectorEnabled ? (yoloHeadDetected ? "PROJECTOR: ON (HEAD TRACKING)" : "PROJECTOR: ON") : "PROJECTOR: OFF (P to toggle)";
+            const std::string targetLabel = ProjectorTargetPartLabel(projectorTargetPart);
+            const bool activeTracking = (projectorTargetPart == ProjectorTargetPart::Head) ? yoloHeadDetected : yoloFlyDetected;
+            string projectorStatusStr = projectorEnabled
+                ? (activeTracking ? ("PROJECTOR: ON (" + targetLabel + " TRACKING)") : ("PROJECTOR: ON (TARGET " + targetLabel + ")"))
+                : "PROJECTOR: OFF (P to toggle)";
             Scalar projectorStatusColor = projectorEnabled ? Scalar(0, 255, 255) : Scalar(100, 100, 100);
             putText(displayFrame, projectorStatusStr, Point(20, 135),
                     FONT_HERSHEY_SIMPLEX, 0.5, projectorStatusColor, 1);
@@ -1808,15 +1910,47 @@ int main(int argc, char* argv[])
             const int buttonWidth = 140;
             const int buttonHeight = 36;
             const int buttonGap = 16;
+            const int targetDropdownWidth = 180;
+            const int targetOptionGap = 4;
             const int panelTop = combinedDisplay.rows;
             const int buttonY = panelTop + (controlPanelHeight - buttonHeight) / 2;
             const int exitButtonX = uiDisplay.cols - buttonWidth - 20;
             const int stopButtonX = exitButtonX - buttonGap - buttonWidth;
+            const int targetDropdownX = stopButtonX - buttonGap - targetDropdownWidth;
+            const Rect targetDropdownRect(targetDropdownX, buttonY, targetDropdownWidth, buttonHeight);
             const Rect stopButtonRect(stopButtonX, buttonY, buttonWidth, buttonHeight);
             const Rect exitButtonRect(exitButtonX, buttonY, buttonWidth, buttonHeight);
 
+            ProjectorTargetPart projectorTargetPartForUi = ProjectorTargetPart::Head;
+            bool dropdownExpanded = false;
+            {
+                std::lock_guard<std::mutex> lockProjector(sharedCtx.projectorMutex);
+                projectorTargetPartForUi = sharedCtx.projectorTargetPart;
+            }
+            {
+                std::lock_guard<std::mutex> lockUi(stopButtonUi.mutex);
+                dropdownExpanded = stopButtonUi.targetDropdownExpanded;
+            }
+
+            std::vector<cv::Rect> targetOptionRects;
+            if (dropdownExpanded)
+            {
+                const int optionsCount = static_cast<int>(projectorTargetOptions.size());
+                const int optionsTopY = buttonY - optionsCount * (buttonHeight + targetOptionGap) - 6;
+                for (int i = 0; i < optionsCount; ++i)
+                {
+                    targetOptionRects.emplace_back(
+                        targetDropdownX,
+                        optionsTopY + i * (buttonHeight + targetOptionGap),
+                        targetDropdownWidth,
+                        buttonHeight);
+                }
+            }
+
             {
                 std::lock_guard<std::mutex> lock(stopButtonUi.mutex);
+                stopButtonUi.targetDropdownRect = targetDropdownRect;
+                stopButtonUi.targetOptionRects = targetOptionRects;
                 stopButtonUi.stopButtonRect = stopButtonRect;
                 stopButtonUi.exitButtonRect = exitButtonRect;
             }
@@ -1828,6 +1962,49 @@ int main(int argc, char* argv[])
                     0.7,
                     saveEnabled ? Scalar(0, 255, 255) : Scalar(180, 180, 180),
                     2);
+
+                    putText(uiDisplay,
+                        "PROJECT TARGET:",
+                        Point(std::max(20, targetDropdownX - 170), buttonY + 24),
+                        FONT_HERSHEY_SIMPLEX,
+                        0.55,
+                        Scalar(210, 210, 210),
+                        1);
+
+                    rectangle(uiDisplay, targetDropdownRect, Scalar(60, 60, 60), cv::FILLED);
+                    rectangle(uiDisplay, targetDropdownRect, Scalar(220, 220, 220), 1);
+                    putText(uiDisplay,
+                        ProjectorTargetPartLabel(projectorTargetPartForUi),
+                        Point(targetDropdownX + 12, buttonY + 24),
+                        FONT_HERSHEY_SIMPLEX,
+                        0.58,
+                        Scalar(255, 255, 255),
+                        2);
+                    putText(uiDisplay,
+                        dropdownExpanded ? "^" : "v",
+                        Point(targetDropdownX + targetDropdownWidth - 24, buttonY + 24),
+                        FONT_HERSHEY_SIMPLEX,
+                        0.65,
+                        Scalar(255, 255, 255),
+                        2);
+
+                    if (dropdownExpanded)
+                    {
+                    for (size_t i = 0; i < targetOptionRects.size(); ++i)
+                    {
+                        const ProjectorTargetPart option = projectorTargetOptions[i];
+                        const bool optionSelected = (option == projectorTargetPartForUi);
+                        rectangle(uiDisplay, targetOptionRects[i], optionSelected ? Scalar(20, 140, 20) : Scalar(50, 50, 50), cv::FILLED);
+                        rectangle(uiDisplay, targetOptionRects[i], Scalar(220, 220, 220), 1);
+                        putText(uiDisplay,
+                            ProjectorTargetPartLabel(option),
+                            Point(targetOptionRects[i].x + 12, targetOptionRects[i].y + 24),
+                            FONT_HERSHEY_SIMPLEX,
+                            0.58,
+                            Scalar(255, 255, 255),
+                            2);
+                    }
+                    }
 
             rectangle(uiDisplay, stopButtonRect, Scalar(30, 30, 200), cv::FILLED);
             rectangle(uiDisplay, stopButtonRect, Scalar(220, 220, 255), 1);
@@ -1854,6 +2031,21 @@ int main(int argc, char* argv[])
                 {
                     std::lock_guard<std::mutex> lock(sharedCtx.saveMutex);
                     sharedCtx.saveEnabled = false;
+                }
+            }
+
+            int selectedTargetOptionIndex = -1;
+            if (ConsumeTargetSelectionClick(stopButtonUi, selectedTargetOptionIndex))
+            {
+                if (selectedTargetOptionIndex >= 0 &&
+                    selectedTargetOptionIndex < static_cast<int>(projectorTargetOptions.size()))
+                {
+                    const ProjectorTargetPart selectedTarget = projectorTargetOptions[selectedTargetOptionIndex];
+                    {
+                        std::lock_guard<std::mutex> lock(sharedCtx.projectorMutex);
+                        sharedCtx.projectorTargetPart = selectedTarget;
+                    }
+                    cout << "Projector target set to " << ProjectorTargetPartLabel(selectedTarget) << "." << endl;
                 }
             }
 
