@@ -459,7 +459,7 @@ struct SharedContext
     unsigned int projectorTargetY = kDmdRows / 2U;
     bool projectorTargetUpdated = false;
     bool projectorBlank = false;
-    bool projectorEnabled = true;
+    bool projectorEnabled = false;
     
     std::mutex frameMutex;
     // YOLO detection results (protected by yoloMutex)
@@ -835,13 +835,10 @@ int main(int argc, char* argv[])
             {
                 int saveKeyLatch = 0;
                 int autoKeyLatch = 0;
-                int spaceKeyLatch = 0;
-                bool autoArmPending = false;
                 Point2f lastPrintedManualVelocity(0.0f, 0.0f);
                 while (!sharedCtx.stopRequested)
                 {
-                    // 'M' key arms AUTO (prints center error); Space confirms enable.
-                    // If already AUTO, 'M' returns to manual immediately.
+                    // 'M' key toggles AUTO/manual directly.
                     if (wnd.keyPressed(0x4D))
                     {
                         if (!autoKeyLatch)
@@ -849,29 +846,13 @@ int main(int argc, char* argv[])
                             if (sharedCtx.autoTrackEnabled)
                             {
                                 sharedCtx.autoTrackEnabled = false;
-                                autoArmPending = false;
                                 cout << "currently manual" << endl;
                             }
                             else
                             {
-                                Point2f estDist(0.0f, 0.0f);
-                                bool flyFound = false;
-                                {
-                                    std::lock_guard<std::mutex> lock(sharedCtx.yoloMutex);
-                                    estDist = sharedCtx.estDist;
-                                    flyFound = sharedCtx.flyDetected;
-                                }
-
-                                cout << "AUTO arm requested. Fly center offset (px): X="
-                                      << estDist.x << " Y=" << estDist.y;
-                                if (!flyFound)
-                                {
-                                    cout << " (fly not currently detected)";
-                                }
-                                cout << endl;
-
-                                autoArmPending = true;
-                                cout << "Press SPACE to enable AUTO." << endl;
+                                sharedCtx.autoTrackEnabled = true;
+                                sharedCtx.autoJustEnabled = true;
+                                cout << "currently automatic" << endl;
                             }
                         }
                         autoKeyLatch = 1;
@@ -879,25 +860,6 @@ int main(int argc, char* argv[])
                     else
                     {
                         autoKeyLatch = 0;
-                    }
-
-                    if (wnd.keyPressed(VK_SPACE))
-                    {
-                        if (!spaceKeyLatch)
-                        {
-                            if (!sharedCtx.autoTrackEnabled && autoArmPending)
-                            {
-                                sharedCtx.autoTrackEnabled = true;
-                                sharedCtx.autoJustEnabled = true;
-                                autoArmPending = false;
-                                cout << "currently automatic" << endl;
-                            }
-                        }
-                        spaceKeyLatch = 1;
-                    }
-                    else
-                    {
-                        spaceKeyLatch = 0;
                     }
 
                     if (sharedCtx.autoTrackEnabled)
@@ -1720,7 +1682,15 @@ int main(int argc, char* argv[])
             }
 
             putText(displayFrame, saveEnabled ? "SAVING" : "NOT SAVING", Point(20, 30), FONT_HERSHEY_SIMPLEX, 0.6, Scalar(0, 200, 255), 2);
-            putText(displayFrame, sharedCtx.autoTrackEnabled ? "AUTO (M to toggle)" : "Manual: Arrows/IJKL | M=auto", Point(20, 55), FONT_HERSHEY_SIMPLEX, 0.5, sharedCtx.autoTrackEnabled ? Scalar(0, 255, 0) : Scalar(255, 255, 255), 1);
+            putText(displayFrame,
+                    sharedCtx.autoTrackEnabled
+                        ? "AUTO (M=manual, P=projector, S=save)"
+                        : "Manual: Arrows/IJKL | M=auto | P=projector | S=save",
+                    Point(20, 55),
+                    FONT_HERSHEY_SIMPLEX,
+                    0.5,
+                    sharedCtx.autoTrackEnabled ? Scalar(0, 255, 0) : Scalar(255, 255, 255),
+                    1);
             putText(displayFrame, "Vel(mm/s): X=" + to_string(static_cast<int>(velocity.x)) + " Y=" + to_string(static_cast<int>(velocity.y)), Point(20, 80), FONT_HERSHEY_SIMPLEX, 0.6, Scalar(255, 255, 255), 1);
 
             // --- YOLO detection overlay ---
@@ -1735,6 +1705,33 @@ int main(int argc, char* argv[])
                 yoloHeadCoM = sharedCtx.headCoM;
                 yoloBodyBox = sharedCtx.bodyBox;
                 yoloHeadBox = sharedCtx.headBox;
+            }
+
+            // Auto-aim projector at detected head if projector is enabled
+            {
+                bool headDetected = false;
+                Point headCoM;
+                bool projectorEnabled = false;
+                {
+                    std::lock_guard<std::mutex> lock(sharedCtx.yoloMutex);
+                    headDetected = sharedCtx.headDetected;
+                    headCoM = sharedCtx.headCoM;
+                }
+                {
+                    std::lock_guard<std::mutex> lock(sharedCtx.projectorMutex);
+                    projectorEnabled = sharedCtx.projectorEnabled;
+                }
+
+                if (projectorEnabled && headDetected)
+                {
+                    unsigned int projX = 0, projY = 0;
+                    if (ApplyHomography(H, static_cast<double>(headCoM.x), static_cast<double>(headCoM.y), projX, projY))
+                    {
+                        std::lock_guard<std::mutex> lock(sharedCtx.projectorMutex);
+                        sharedCtx.projectorTargetX = projX;
+                        sharedCtx.projectorTargetY = projY;
+                    }
+                }
             }
 
             if (yoloFlyDetected)
@@ -1765,6 +1762,17 @@ int main(int argc, char* argv[])
                 putText(displayFrame, "FLY NOT DETECTED", Point(20, 110),
                         FONT_HERSHEY_SIMPLEX, 0.7, Scalar(0, 0, 255), 2);
             }
+
+            // Projector status GUI
+            bool projectorEnabled = false;
+            {
+                std::lock_guard<std::mutex> lock(sharedCtx.projectorMutex);
+                projectorEnabled = sharedCtx.projectorEnabled;
+            }
+            string projectorStatusStr = projectorEnabled ? (yoloHeadDetected ? "PROJECTOR: ON (HEAD TRACKING)" : "PROJECTOR: ON") : "PROJECTOR: OFF (P to toggle)";
+            Scalar projectorStatusColor = projectorEnabled ? Scalar(0, 255, 255) : Scalar(100, 100, 100);
+            putText(displayFrame, projectorStatusStr, Point(20, 135),
+                    FONT_HERSHEY_SIMPLEX, 0.5, projectorStatusColor, 1);
 
             Mat sideDisplay = Mat::zeros(displayFrame.size(), CV_8UC3);
             if (sideCamera && !sideFrame.empty())
